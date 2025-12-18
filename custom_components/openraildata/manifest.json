@@ -10,7 +10,7 @@
   ],
   "iot_class": "cloud_push",
   "codeowners": [
-    "@yourgithub"
+    "tombanbury-cyber"
   ],
   "loggers": [
     "openraildata"

@@ -104,7 +104,7 @@ class OpenRailDataHub:
                         id=1, 
                         ack="auto",
                         headers={
-                            "activemq.subscriptionName": f"openraildata-{self.topic}",
+                            "activemq.subscriptionName": f"openraildata-{topic}",
                         },
                     )
                 except Exception as exc:

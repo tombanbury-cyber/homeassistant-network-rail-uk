@@ -212,7 +212,7 @@ class OpenRailDataHub:
                     wait=True,
                     headers={
                         "host": "/",                      # IMPORTANT
-                        "client-id": self._username,      # recommended for durability
+                        "client-id": username,      # recommended for durability
                         "heart-beat": "15000,15000",
                     },
                 )

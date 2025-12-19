@@ -7,6 +7,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_EVENT_TYPES,
@@ -54,12 +55,27 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None) -> FlowResult:
         if user_input is None:
-            opts = self.config_entry.options
+            opts = self.config_entry. options
             schema = vol.Schema(
                 {
-                    vol.Optional(CONF_STANOX_FILTER, default=opts.get(CONF_STANOX_FILTER, "")): str,
-                    vol.Optional(CONF_TOC_FILTER, default=opts.get(CONF_TOC_FILTER, "")): str,
-                    vol.Optional(CONF_EVENT_TYPES, default=opts.get(CONF_EVENT_TYPES, [])): list,
+                    vol.Optional(
+                        CONF_STANOX_FILTER, 
+                        default=opts.get(CONF_STANOX_FILTER, "")
+                    ): str,
+                    vol.Optional(
+                        CONF_TOC_FILTER, 
+                        default=opts.get(CONF_TOC_FILTER, "")
+                    ): str,
+                    vol. Optional(
+                        CONF_EVENT_TYPES, 
+                        default=opts.get(CONF_EVENT_TYPES, [])
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=["ARRIVAL", "DEPARTURE"],
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        ),
+                    ),
                 }
             )
             return self.async_show_form(step_id="init", data_schema=schema)

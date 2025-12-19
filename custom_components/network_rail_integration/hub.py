@@ -211,7 +211,7 @@ class OpenRailDataHub:
                     passcode=password, 
                     wait=True,
                     headers={
-                        "host": "/",                      # IMPORTANT
+                        "host": "datafeeds.networkrail.co.uk",                      # IMPORTANT
                         "client-id": username,            # recommended for durability
                         "heart-beat": "15000,15000",
                     },

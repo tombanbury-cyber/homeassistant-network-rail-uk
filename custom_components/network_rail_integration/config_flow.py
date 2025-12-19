@@ -39,7 +39,7 @@ class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
-            title=f"Network Rail ({user_input.get(CONF_TOPIC, DEFAULT_TOPIC)})",
+            title=f"Network Rail ({user_input. get(CONF_TOPIC, DEFAULT_TOPIC)})",
             data=user_input,
         )
 
@@ -50,12 +50,9 @@ class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
-
     async def async_step_init(self, user_input=None) -> FlowResult:
         if user_input is None:
-            opts = self.config_entry. options
+            opts = self.config_entry.options
             schema = vol.Schema(
                 {
                     vol.Optional(
@@ -66,7 +63,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_TOC_FILTER, 
                         default=opts.get(CONF_TOC_FILTER, "")
                     ): str,
-                    vol. Optional(
+                    vol.Optional(
                         CONF_EVENT_TYPES, 
                         default=opts.get(CONF_EVENT_TYPES, [])
                     ): selector.SelectSelector(

@@ -46,13 +46,13 @@ class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return NetworkRailOptionsFlowHandler(config_entry)
+        return NetworkRailOptionsFlowHandler()
 
 
 class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None) -> FlowResult:
         if user_input is None:
-            opts = self.config_entry.options
+            opts = self. config_entry.options
             schema = vol.Schema(
                 {
                     vol.Optional(
@@ -75,6 +75,6 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 }
             )
-            return self.async_show_form(step_id="init", data_schema=schema)
+            return self. async_show_form(step_id="init", data_schema=schema)
 
         return self.async_create_entry(title="", data=user_input)

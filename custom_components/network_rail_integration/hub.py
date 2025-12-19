@@ -55,7 +55,7 @@ class OpenRailDataHub:
         self._stop_evt.clear()
         self._thread = threading.Thread(
             target=self._thread_main,
-            name=f"openraildata-{self.entry.entry_id}",
+            name=f"network_rail_integration-{self.entry.entry_id}",
             daemon=True,
         )
         self._thread.start()
@@ -104,7 +104,7 @@ class OpenRailDataHub:
                         id=1, 
                         ack="auto",
                         headers={
-                            "activemq.subscriptionName": f"openraildata-{topic}",
+                            "activemq.subscriptionName": f"network_rail_integration-{topic}",
                         },
                     )
                 except Exception as exc:

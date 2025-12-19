@@ -1,4 +1,4 @@
-"""Config flow for OpenRailData."""
+"""Config flow for Network Rail Integration."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .const import (
 )
 
 
-class OpenRailDataConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None) -> FlowResult:
@@ -38,17 +38,17 @@ class OpenRailDataConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
-            title=f"OpenRailData ({user_input.get(CONF_TOPIC, DEFAULT_TOPIC)})",
+            title=f"Network Rail ({user_input.get(CONF_TOPIC, DEFAULT_TOPIC)})",
             data=user_input,
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return OpenRailDataOptionsFlowHandler(config_entry)
+        return NetworkRailOptionsFlowHandler(config_entry)
 
 
-class OpenRailDataOptionsFlowHandler(config_entries.OptionsFlow):
+class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry
 

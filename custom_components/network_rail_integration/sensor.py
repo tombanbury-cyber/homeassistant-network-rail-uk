@@ -1,90 +1,109 @@
-"""Sensor platform for Network Rail integration - per-station (STANOX) sensors."""
+"""Sensors for OpenRailData (Train Movements)."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, DISPATCH_MOVEMENT
+
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up STANOX station sensors from a config entry."""
-    store = hass.data.get(DOMAIN, {})
-    coordinator: DataUpdateCoordinator | None = store.get(entry.entry_id, {}).get("coordinator")
-
-    if coordinator is None:
-        # No coordinator found — nothing to create
-        return
-
-    stations = coordinator.data.get("stations", {}) or {}
-    entities: list[StationSensor] = []
-
-    # If stations is a list, convert to dict keyed by STANOX:
-    if isinstance(stations, list):
-        station_map: dict[str, dict] = {}
-        for s in stations:
-            key = s.get("stanox") or s.get("stn") or s.get("stnox") or s.get("code")
-            if key:
-                station_map[str(key)] = s
-        stations = station_map
-
-    for stn_code, stn_info in stations.items():
-        entities.append(StationSensor(coordinator, entry, stn_code))
-
-    if entities:
-        async_add_entities(entities, True)
+    hub = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([OpenRailDataLastMovementSensor(hass, entry, hub)], True)
 
 
-class StationSensor(CoordinatorEntity, SensorEntity):
-    """Sensor representing a single station (STANOX)."""
-
-    def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry, stn_code: str) -> None:
-        """Initialize the station sensor."""
-        super().__init__(coordinator)
-        self._entry = entry
-        self._stn = str(stn_code)
-        station_name = coordinator.data.get("stations", {}).get(self._stn, {}).get("name")
-        if station_name:
-            self._attr_name = f"{station_name} ({self._stn})"
-        else:
-            self._attr_name = f"Station {self._stn}"
-        self._attr_unique_id = f"{entry.entry_id}_station_{self._stn}"
-        self._attr_native_unit_of_measurement = "trains"
-
-    @property
-    def native_value(self) -> Any:
-        """Return the main value for the station sensor.
-
-        Priority:
-        1. data['train_count']
-        2. len(data['trains'])
-        3. data['active'] if numeric
-        """
-        stations = self.coordinator.data.get("stations", {}) or {}
-        data = stations.get(self._stn, {}) or {}
-
-        if "train_count" in data:
-            return data.get("train_count")
-
-        trains = data.get("trains")
-        if isinstance(trains, (list, tuple)):
-            return len(trains)
-
-        if "active" in data and isinstance(data["active"], (int, float)):
-            return data["active"]
-
+def _ms_to_local_iso(ms: Any) -> str | None:
+    try:
+        ms_i = int(ms)
+    except Exception:
         return None
+    dt_utc = datetime.fromtimestamp(ms_i / 1000.0, tz=timezone.utc)
+    dt_local = dt_util.as_local(dt_utc)
+    return dt_local.isoformat()
+
+
+class OpenRailDataLastMovementSensor(SensorEntity):
+    """Shows the last movement message seen (after optional filtering)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Last movement"
+    _attr_icon = "mdi:train"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, hub) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.hub = hub
+        self._unsub = None
+
+    async def async_added_to_hass(self) -> None:
+        self._unsub = async_dispatcher_connect(self.hass, DISPATCH_MOVEMENT, self._handle_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
 
     @property
-    def extra_state_attributes(self) -> dict:
-        """Return station-specific attributes (raw station dict)."""
-        stations = self.coordinator.data.get("stations", {}) or {}
-        data = stations.get(self._stn, {}) or {}
-        return dict(data)
+    def unique_id(self) -> str:
+        return f"{self.entry.entry_id}_last_movement"
+
+    @property
+    def native_value(self) -> str | None:
+        mv = self.hub.state.last_movement
+        if not mv:
+            return None
+        body = mv.get("body") or {}
+        return str(body.get("event_type") or body.get("movement_type") or "movement")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        mv = self.hub.state.last_movement
+        if not mv:
+            return {}
+        header = mv.get("header") or {}
+        body = mv.get("body") or {}
+
+        attrs: dict[str, Any] = {
+            "msg_type": header.get("msg_type"),
+            "source_dev_id": header.get("source_dev_id"),
+            "original_data_source": header.get("original_data_source"),
+            "msg_queue_timestamp": header.get("msg_queue_timestamp"),
+            "msg_queue_time_local": _ms_to_local_iso(header.get("msg_queue_timestamp")),
+            "train_id": body.get("train_id"),
+            "toc_id": body.get("toc_id"),
+            "event_type": body.get("event_type"),
+            "planned_timestamp": body.get("planned_timestamp"),
+            "planned_time_local": _ms_to_local_iso(body.get("planned_timestamp")),
+            "actual_timestamp": body.get("actual_timestamp"),
+            "actual_time_local": _ms_to_local_iso(body.get("actual_timestamp")),
+            "timetable_variation": body.get("timetable_variation"),
+            "variation_status": body.get("variation_status"),
+            "loc_stanox": body.get("loc_stanox"),
+            "platform": body.get("platform"),
+            "line_ind": body.get("line_ind"),
+            "direction_ind": body.get("direction_ind"),
+            "corr_id": body.get("corr_id"),
+            "event_source": body.get("event_source"),
+            "train_terminated": body.get("train_terminated"),
+            "offroute_ind": body.get("offroute_ind"),
+            "batch_count_seen": self.hub.state.last_batch_count,
+            "raw": body,
+        }
+
+        return attrs

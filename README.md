@@ -19,8 +19,20 @@ Connects to Network Rail's public **STOMP** broker and subscribes to **Train Mov
 After adding the integration, open **Configure**:
 
 - `stanox_filter`: Only keep movements for a single STANOX (`loc_stanox`) value.
+  - You can enter a STANOX code directly (e.g., `72410` for London Euston)
+  - Or use the **"Search for station by name"** option to find the STANOX code by searching for the station name
 - `toc_filter`: Only keep movements for a single `toc_id`.
 - `event_types`: Only keep movements whose `event_type` is in the list.
+
+### Finding STANOX Codes
+
+STANOX codes are unique identifiers for railway locations in the UK. This integration includes a searchable database of over 11,000 STANOX codes to help you find the right one:
+
+1. In the integration options, check the **"Search for station by name"** box and save
+2. You'll be taken to the search screen
+3. Enter any part of a station name (e.g., "EUSTON", "MANCHESTER", "PADDINGTON")
+4. Select the station from the search results
+5. The STANOX code will be automatically set
 
 ## Logging
 

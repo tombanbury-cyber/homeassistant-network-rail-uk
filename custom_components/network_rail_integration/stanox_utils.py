@@ -107,3 +107,25 @@ def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
                 break
     
     return results
+
+
+def get_station_name(stanox: str | None) -> str | None:
+    """Get the station name for a given STANOX code.
+    
+    Args:
+        stanox: The STANOX code to look up
+        
+    Returns:
+        The station name, or None if not found
+    """
+    if not stanox:
+        return None
+    
+    data = load_stanox_data()
+    stanox_str = str(stanox).strip()
+    
+    for entry in data:
+        if entry["stanox"] == stanox_str:
+            return entry["stanme"]
+    
+    return None

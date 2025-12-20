@@ -13,6 +13,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, DISPATCH_MOVEMENT, CONF_STATIONS, CONF_STANOX_FILTER
+from .toc_codes import get_toc_name, get_direction_description, get_line_description
+from .stanox_utils import get_station_name
 
 
 async def async_setup_entry(
@@ -101,6 +103,13 @@ class OpenRailDataLastMovementSensor(SensorEntity):
         header = mv.get("header") or {}
         body = mv.get("body") or {}
 
+        # Get raw values
+        toc_id = body.get("toc_id")
+        direction_ind = body.get("direction_ind")
+        line_ind = body.get("line_ind")
+        loc_stanox = body.get("loc_stanox")
+        platform = body.get("platform")
+
         attrs: dict[str, Any] = {
             "msg_type": header.get("msg_type"),
             "source_dev_id": header.get("source_dev_id"),
@@ -108,7 +117,8 @@ class OpenRailDataLastMovementSensor(SensorEntity):
             "msg_queue_timestamp": header.get("msg_queue_timestamp"),
             "msg_queue_time_local": _ms_to_local_iso(header.get("msg_queue_timestamp")),
             "train_id": body.get("train_id"),
-            "toc_id": body.get("toc_id"),
+            "toc_id": toc_id,
+            "toc_name": get_toc_name(toc_id),
             "event_type": body.get("event_type"),
             "planned_timestamp": body.get("planned_timestamp"),
             "planned_time_local": _ms_to_local_iso(body.get("planned_timestamp")),
@@ -116,10 +126,13 @@ class OpenRailDataLastMovementSensor(SensorEntity):
             "actual_time_local": _ms_to_local_iso(body.get("actual_timestamp")),
             "timetable_variation": body.get("timetable_variation"),
             "variation_status": body.get("variation_status"),
-            "loc_stanox": body.get("loc_stanox"),
-            "platform": body.get("platform"),
-            "line_ind": body.get("line_ind"),
-            "direction_ind": body.get("direction_ind"),
+            "loc_stanox": loc_stanox,
+            "location_name": get_station_name(loc_stanox),
+            "platform": platform,
+            "line_ind": line_ind,
+            "line_description": get_line_description(line_ind),
+            "direction_ind": direction_ind,
+            "direction_description": get_direction_description(direction_ind),
             "corr_id": body.get("corr_id"),
             "event_source": body.get("event_source"),
             "train_terminated": body.get("train_terminated"),
@@ -183,6 +196,13 @@ class OpenRailDataStationSensor(SensorEntity):
         header = mv.get("header") or {}
         body = mv.get("body") or {}
 
+        # Get raw values
+        toc_id = body.get("toc_id")
+        direction_ind = body.get("direction_ind")
+        line_ind = body.get("line_ind")
+        loc_stanox = body.get("loc_stanox")
+        platform = body.get("platform")
+
         attrs: dict[str, Any] = {
             "stanox": self._stanox,
             "station_name": self._station_name,
@@ -192,7 +212,8 @@ class OpenRailDataStationSensor(SensorEntity):
             "msg_queue_timestamp": header.get("msg_queue_timestamp"),
             "msg_queue_time_local": _ms_to_local_iso(header.get("msg_queue_timestamp")),
             "train_id": body.get("train_id"),
-            "toc_id": body.get("toc_id"),
+            "toc_id": toc_id,
+            "toc_name": get_toc_name(toc_id),
             "event_type": body.get("event_type"),
             "planned_timestamp": body.get("planned_timestamp"),
             "planned_time_local": _ms_to_local_iso(body.get("planned_timestamp")),
@@ -200,10 +221,13 @@ class OpenRailDataStationSensor(SensorEntity):
             "actual_time_local": _ms_to_local_iso(body.get("actual_timestamp")),
             "timetable_variation": body.get("timetable_variation"),
             "variation_status": body.get("variation_status"),
-            "loc_stanox": body.get("loc_stanox"),
-            "platform": body.get("platform"),
-            "line_ind": body.get("line_ind"),
-            "direction_ind": body.get("direction_ind"),
+            "loc_stanox": loc_stanox,
+            "location_name": get_station_name(loc_stanox),
+            "platform": platform,
+            "line_ind": line_ind,
+            "line_description": get_line_description(line_ind),
+            "direction_ind": direction_ind,
+            "direction_description": get_direction_description(direction_ind),
             "corr_id": body.get("corr_id"),
             "event_source": body.get("event_source"),
             "train_terminated": body.get("train_terminated"),

@@ -4,9 +4,22 @@ Connects to Network Rail's public **STOMP** broker and subscribes to **Train Mov
 
 ## Entities
 
-- **Binary sensor**: Feed connected
-- **Sensor**: Last movement (state = `event_type`, with useful attributes)
-- **Sensor (per station)**: One sensor per configured station showing movements for that specific station
+The integration creates the following entities:
+
+- **Binary sensor**: `binary_sensor.network_rail_integration_feed_connected` - Connection status to Network Rail feed
+- **Sensor**: `sensor.network_rail_integration_last_movement` - Last movement seen across all stations
+- **Sensor (per station)**: `sensor.network_rail_integration_<station_name>` - Last movement for each configured station
+
+### Entity Naming
+
+Starting from version 1.4.0, all entities follow the format `sensor.network_rail_integration_<name>` where `<name>` is the slugified station name (lowercase with spaces replaced by underscores).
+
+**Examples:**
+- Canterbury West → `sensor.network_rail_integration_canterbury_west`
+- Euston → `sensor.network_rail_integration_euston`
+- Kings Cross → `sensor.network_rail_integration_kings_cross`
+
+**Note for upgrading users:** If you're upgrading from version 1.3.0 or earlier, you'll need to update your dashboard configurations and automations to use the new entity IDs. See [DASHBOARD_EXAMPLES.md](DASHBOARD_EXAMPLES.md) for updated examples.
 
 ### Available Attributes
 

@@ -133,13 +133,13 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             mode=selector.SelectSelectorMode.DROPDOWN,
                         ),
                     ),
-                    vol.Optional("station_query", default=""): str,
+                    vol.Optional("station_query"): str,
                 }
             )
         else:
             schema = vol.Schema(
                 {
-                    vol.Required("station_query", default=""): str,
+                    vol.Required("station_query"): str,
                 }
             )
         

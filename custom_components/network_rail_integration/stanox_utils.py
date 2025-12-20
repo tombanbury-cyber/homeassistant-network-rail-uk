@@ -14,7 +14,7 @@ _stanox_data: list[dict[str, str]] | None = None
 
 def load_stanox_data() -> list[dict[str, str]]:
     """Load STANOX reference data from CSV file.
-    
+
     Returns:
         A list of dictionaries with 'stanox' and 'stanme' keys.
     """
@@ -49,9 +49,6 @@ def load_stanox_data() -> list[dict[str, str]]:
                         })
         
         _LOGGER.debug("Loaded %d STANOX entries", len(_stanox_data))
-    except FileNotFoundError:
-        _LOGGER.error("STANOX reference data file not found at expected location")
-        _stanox_data = []
     except Exception as exc:
         _LOGGER.error("Failed to load STANOX reference data: %s", exc)
         _stanox_data = []
@@ -61,7 +58,7 @@ def load_stanox_data() -> list[dict[str, str]]:
 
 def get_stanox_options() -> list[dict[str, str]]:
     """Get STANOX options formatted for Home Assistant selector.
-    
+
     Returns:
         A list of dicts with 'value' (stanox) and 'label' (formatted display string).
     """
@@ -83,11 +80,11 @@ def get_stanox_options() -> list[dict[str, str]]:
 
 def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
     """Search STANOX data by station name or code.
-    
+
     Args:
         query: Search query (case-insensitive)
         limit: Maximum number of results to return
-    
+
     Returns:
         List of matching STANOX entries
     """

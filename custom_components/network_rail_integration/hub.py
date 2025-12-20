@@ -213,7 +213,7 @@ class OpenRailDataHub:
                     headers={
                         "host": "datafeeds.networkrail.co.uk",                      # IMPORTANT
                         "client-id": username,            # recommended for durability
-                        "heart-beat": "15000,15000",
+                        #"heart-beat": "15000,15000",
                     },
                 )
 

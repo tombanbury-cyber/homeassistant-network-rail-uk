@@ -10,6 +10,7 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 _stanox_data: list[dict[str, str]] | None = None
+_stanox_lookup: dict[str, str] | None = None
 
 
 def load_stanox_data() -> list[dict[str, str]]:
@@ -18,12 +19,13 @@ def load_stanox_data() -> list[dict[str, str]]:
     Returns:
         A list of dictionaries with 'stanox' and 'stanme' keys.
     """
-    global _stanox_data
+    global _stanox_data, _stanox_lookup
     
     if _stanox_data is not None:
         return _stanox_data
     
     _stanox_data = []
+    _stanox_lookup = {}
     
     try:
         csv_path = Path(__file__).parent / "stanox-stanme.csv"
@@ -47,11 +49,14 @@ def load_stanox_data() -> list[dict[str, str]]:
                             "stanox": stanox,
                             "stanme": stanme,
                         })
+                        # Build lookup dictionary for O(1) access
+                        _stanox_lookup[stanox] = stanme
         
         _LOGGER.debug("Loaded %d STANOX entries", len(_stanox_data))
     except Exception as exc:
         _LOGGER.error("Failed to load STANOX reference data: %s", exc)
         _stanox_data = []
+        _stanox_lookup = {}
     
     return _stanox_data
 
@@ -121,11 +126,11 @@ def get_station_name(stanox: str | None) -> str | None:
     if not stanox:
         return None
     
-    data = load_stanox_data()
+    global _stanox_lookup
+    
+    # Ensure data is loaded
+    if _stanox_lookup is None:
+        load_stanox_data()
+    
     stanox_str = str(stanox).strip()
-    
-    for entry in data:
-        if entry["stanox"] == stanox_str:
-            return entry["stanme"]
-    
-    return None
+    return _stanox_lookup.get(stanox_str) if _stanox_lookup else None

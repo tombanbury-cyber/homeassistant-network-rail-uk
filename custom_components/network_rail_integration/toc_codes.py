@@ -55,7 +55,7 @@ def get_toc_name(toc_id: str | None) -> str:
         toc_id: The TOC ID code (e.g., "79")
         
     Returns:
-        The company name, or "Unknown TOC" if not found
+        The company name, or "Unknown" if not found
     """
     if not toc_id:
         return "Unknown"

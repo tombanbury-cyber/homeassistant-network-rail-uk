@@ -77,6 +77,7 @@ def parse_td_message(message: dict[str, Any]) -> dict[str, Any] | None:
         }
     """
     if not isinstance(message, dict):
+        _LOGGER.debug("parse_td_message: message is not a dict (type=%s)", type(message))
         return None
     
     # TD messages are wrapped in a key like "CA_MSG", "CB_MSG", etc.
@@ -86,7 +87,10 @@ def parse_td_message(message: dict[str, Any]) -> dict[str, Any] | None:
             
         msg_type = content.get("msg_type")
         if msg_type not in TD_MESSAGE_TYPES:
+            _LOGGER.debug("parse_td_message: unknown msg_type '%s' in key '%s'", msg_type, key)
             continue
+        
+        _LOGGER.debug("parse_td_message: found TD message type=%s, area=%s", msg_type, content.get("area_id"))
         
         # Extract common fields
         parsed = {
@@ -132,6 +136,7 @@ def parse_td_message(message: dict[str, Any]) -> dict[str, Any] | None:
         
         return parsed
     
+    _LOGGER.debug("parse_td_message: no TD message found in keys: %s", list(message.keys()))
     return None
 
 

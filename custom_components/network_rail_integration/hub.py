@@ -128,7 +128,12 @@ class OpenRailDataHub:
                     options = _read_options()
                     if options.get(CONF_ENABLE_TD, False):
                         td_dest = f"/topic/{DEFAULT_TD_TOPIC}"
-                        self._hub.debug_logger.info("Subscribing to Train Describer feed: %s", td_dest)
+                        td_areas = options.get(CONF_TD_AREAS, [])
+                        self._hub.debug_logger.info(
+                            "Subscribing to Train Describer feed: %s (areas: %s)", 
+                            td_dest,
+                            ", ".join(td_areas) if td_areas else "all"
+                        )
                         self._conn_ref.subscribe(
                             destination=td_dest,
                             id=2,
@@ -137,6 +142,9 @@ class OpenRailDataHub:
                                 "activemq.subscriptionName": f"network_rail_integration-{DEFAULT_TD_TOPIC}",
                             },
                         )
+                        self._hub.debug_logger.info("Successfully subscribed to Train Describer feed")
+                    else:
+                        self._hub.debug_logger.debug("Train Describer feed is disabled")
                 except Exception as exc:
                     self._hub.debug_logger.error("Subscribe failed: %s", exc)
 
@@ -161,6 +169,7 @@ class OpenRailDataHub:
 
                 # Check if this is a Train Describer message (dict with *_MSG keys)
                 if isinstance(payload, dict):
+                    self._hub.debug_logger.debug("Received dict payload, checking if TD message")
                     self._handle_td_message(payload)
                     return
 
@@ -221,16 +230,45 @@ class OpenRailDataHub:
 
             def _handle_td_message(self, message: dict[str, Any]) -> None:
                 """Handle a Train Describer message."""
+                # Log that we received a potential TD message
+                self._hub.debug_logger.debug("Received potential TD message: %s", list(message.keys()))
+                
                 parsed = parse_td_message(message)
                 if not parsed:
+                    self._hub.debug_logger.debug("Message was not a valid TD message")
                     return
+                
+                self._hub.debug_logger.debug(
+                    "Parsed TD message: type=%s, area=%s", 
+                    parsed.get("msg_type"), 
+                    parsed.get("area_id")
+                )
                 
                 options = _read_options()
                 
                 # Apply filters
                 td_areas = set(options.get(CONF_TD_AREAS, []))
-                if not apply_td_filters(parsed, area_filter=td_areas if td_areas else None):
+                area_filter = td_areas if td_areas else None
+                
+                self._hub.debug_logger.debug(
+                    "TD filters: areas=%s (filter=%s)", 
+                    td_areas if td_areas else "all", 
+                    area_filter
+                )
+                
+                if not apply_td_filters(parsed, area_filter=area_filter):
+                    self._hub.debug_logger.debug(
+                        "TD message filtered out: area=%s not in %s",
+                        parsed.get("area_id"),
+                        td_areas
+                    )
                     return
+                
+                self._hub.debug_logger.info(
+                    "Publishing TD message: type=%s, area=%s",
+                    parsed.get("msg_type"),
+                    parsed.get("area_id")
+                )
                 
                 # Publish to HA
                 self._publish_td_message(parsed)

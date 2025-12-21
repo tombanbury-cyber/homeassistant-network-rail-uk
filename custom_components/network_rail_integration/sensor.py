@@ -315,8 +315,11 @@ class TrainDescriberStatusSensor(SensorEntity):
     @property
     def native_value(self) -> str | None:
         msg = self.hub.state.last_td_message
+        msg_count = self.hub.state.td_message_count
         if not msg:
-            return "No messages"
+            if msg_count == 0:
+                return "Waiting for messages"
+            return "No recent messages"
         msg_type = msg.get("msg_type", "Unknown")
         return f"{msg_type}"
 
@@ -419,7 +422,7 @@ class TrainDescriberAreaSensor(SensorEntity):
     @property
     def native_value(self) -> str | None:
         if not self._last_message:
-            return "No messages"
+            return "Waiting for messages"
         msg_type = self._last_message.get("msg_type", "Unknown")
         return f"{msg_type}"
 

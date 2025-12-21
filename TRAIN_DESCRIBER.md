@@ -207,10 +207,45 @@ The TD feed can be high-volume, especially if tracking all areas:
 
 ### No TD messages received
 
-1. Ensure Train Describer is enabled in the configuration
-2. Check that your Network Rail credentials have access to the TD feed
-3. Verify the connection status: `binary_sensor.network_rail_integration_feed_connected`
-4. Check logs for subscription errors
+If the Train Describer Status sensor shows "Waiting for messages" or "No messages":
+
+1. **Check TD is enabled**: Ensure Train Describer is enabled in the configuration
+2. **Check connection status**: Verify `binary_sensor.network_rail_integration_feed_connected` shows "Connected"
+3. **Check credentials**: Confirm your Network Rail credentials have access to the TD feed
+4. **Review debug logs**: Check the `sensor.network_rail_integration_debug_log` entity for detailed information:
+   - Look for "Subscribing to Train Describer feed" message - confirms subscription attempt
+   - Look for "Successfully subscribed to Train Describer feed" - confirms successful subscription
+   - Look for "Received dict payload, checking if TD message" - confirms messages are being received
+   - Look for "Parsed TD message" - confirms TD messages are being parsed
+   - Look for "Publishing TD message" - confirms messages are passing filters
+   - Look for "TD message filtered out" - indicates messages are being filtered by area settings
+5. **Check Home Assistant logs**: Enable debug logging for more details:
+   ```yaml
+   logger:
+     default: info
+     logs:
+       custom_components.network_rail_integration: debug
+   ```
+6. **Verify area filters**: If you've configured specific TD areas, ensure they're correct:
+   - Area codes are case-sensitive (should be uppercase, e.g., "SK", "G1")
+   - Leave area filter empty to receive all TD messages
+   - Check the debug log for "TD filters: areas=" to see active filters
+
+### Common Issues and Solutions
+
+**Issue**: Sensor shows "Waiting for messages" after connection
+- **Solution**: TD messages may be sparse during quiet periods. Wait a few minutes or check during peak times.
+
+**Issue**: Debug log shows "Message was not a valid TD message"
+- **Solution**: This is normal - some non-TD messages are received on the feed. Only valid TD messages will be processed.
+
+**Issue**: Debug log shows "TD message filtered out"
+- **Solution**: Your area filter is excluding messages. Either:
+  - Remove area filters to receive all messages
+  - Add the required area codes to your filter configuration
+
+**Issue**: Subscription errors in logs
+- **Solution**: Check your Network Rail credentials and ensure your account has access to the Train Describer feed.
 
 ### High CPU usage
 
@@ -225,6 +260,16 @@ If berths are not showing in `occupied_berths`:
 - The berth may have been occupied before Home Assistant started
 - CC (interpose) messages are used to populate berths; if a train was already in place, you may need to wait for the next movement
 - Some areas may have sparse TD coverage
+
+### Debug Logging
+
+The integration includes a debug log sensor (`sensor.network_rail_integration_debug_log`) that captures:
+- Connection status and subscription confirmations
+- TD message receipt and parsing
+- Filter application and message counts
+- Error conditions
+
+View the sensor's attributes in Developer Tools → States to see the full log history.
 
 ## References
 

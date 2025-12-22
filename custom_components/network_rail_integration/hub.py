@@ -20,9 +20,11 @@ from .const import (
     CONF_STANOX_FILTER,
     CONF_STATIONS,
     CONF_TD_AREAS,
+    CONF_TD_EVENT_HISTORY_SIZE,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
+    DEFAULT_TD_EVENT_HISTORY_SIZE,
     DEFAULT_TD_TOPIC,
     DEFAULT_TOPIC,
     DISPATCH_CONNECTED,
@@ -46,8 +48,12 @@ class HubState:
     last_seen_monotonic: float | None = None
     # Train Describer state
     last_td_message: dict[str, Any] | None = None
-    berth_state: BerthState = field(default_factory=BerthState)
     td_message_count: int = 0
+    
+    def __post_init__(self):
+        """Initialize berth state with default history size."""
+        # Create berth_state as an instance attribute after dataclass initialization
+        self.berth_state = BerthState(event_history_size=DEFAULT_TD_EVENT_HISTORY_SIZE)
 
 
 class OpenRailDataHub:
@@ -100,6 +106,7 @@ class OpenRailDataHub:
                 CONF_EVENT_TYPES: opt.get(CONF_EVENT_TYPES, []),
                 CONF_ENABLE_TD: opt.get(CONF_ENABLE_TD, False),
                 CONF_TD_AREAS: opt.get(CONF_TD_AREAS, []),
+                CONF_TD_EVENT_HISTORY_SIZE: opt.get(CONF_TD_EVENT_HISTORY_SIZE, DEFAULT_TD_EVENT_HISTORY_SIZE),
             }
 
         reconnect_delay = 5

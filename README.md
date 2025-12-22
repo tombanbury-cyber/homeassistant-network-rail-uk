@@ -10,8 +10,8 @@ Connects to Network Rail's public **STOMP** broker and subscribes to:
 ### Train Movements Feed
 Track train movements at specific stations with detailed arrival/departure information, platform numbers, train operating companies, and timing data.
 
-### Train Describer Feed
-Monitor train positions through signalling berths for creating live railway network diagrams. See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for details.
+### Train Describer Feed (Enhanced in v1.8.0)
+Monitor train positions through signalling berths for creating live railway network diagrams. **NEW in v1.8.0**: Track multiple platforms simultaneously with configurable event history. See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for details.
 
 ### Network Diagrams (NEW in v1.7.0)
 Visualize train positions on a map of berth connections showing adjacent stations and real-time occupancy. Uses Network Rail's SMART data to build topology graphs. See [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) for detailed documentation.
@@ -27,7 +27,7 @@ The integration creates the following entities:
 
 ### Train Describer (when enabled)
 - **Sensor**: `sensor.network_rail_integration_train_describer_status` - Overall TD status and statistics
-- **Sensor (per area)**: `sensor.network_rail_integration_td_area_<area_id>` - Berth occupancy for specific TD areas
+- **Sensor (per area)**: `sensor.network_rail_integration_td_area_<area_id>` - Berth occupancy and platform tracking for specific TD areas (NEW in v1.8.0: includes platform states and event history)
 
 ### Network Diagrams (NEW in v1.7.0, when enabled)
 - **Sensor**: `sensor.network_rail_integration_diagram_<stanox>` - Network diagram showing berth occupancy at a station and adjacent stations
@@ -35,7 +35,7 @@ The integration creates the following entities:
 ### Debug and Diagnostics
 - **Sensor**: `sensor.network_rail_integration_debug_log` - Recent log messages for debugging (shows last 50 entries)
 
-See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for more information about the Train Describer feed.
+See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for more information about the Train Describer feed and multi-platform tracking.
 
 ### Entity Naming
 
@@ -126,9 +126,27 @@ To enable Train Describer feed:
 2. Select "Configure Train Describer"
 3. Enable the "Enable Train Describer Feed" checkbox
 4. Optionally specify TD area IDs (comma-separated) to track specific areas
-5. Save the configuration
+5. Set the event history size (default: 10, range: 1-50) to control how many recent events are kept
+6. Save the configuration
 
 See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for detailed information about the Train Describer feature.
+
+### Configuring TD Platforms (NEW in v1.8.0)
+
+To configure multi-platform tracking:
+
+1. Open the integration configuration
+2. Select "Configure TD Platforms"
+3. Choose a TD area from the dropdown
+4. Select which platforms to track (platforms are automatically discovered from SMART data)
+5. Save the configuration
+
+The TD Area sensor will then include:
+- Platform-specific state (current train, event type, status)
+- Event history with platform associations
+- Real-time updates as trains move between platforms
+
+See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) and [AUTOMATION_EXAMPLES.md](AUTOMATION_EXAMPLES.md) for usage examples.
 
 ### Configuring Network Diagrams (NEW in v1.7.0)
 

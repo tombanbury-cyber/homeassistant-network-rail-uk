@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -171,9 +172,84 @@ def apply_td_filters(
 class BerthState:
     """Tracks the state of berths in a TD area."""
     
-    def __init__(self) -> None:
-        """Initialize berth state tracker."""
+    def __init__(self, event_history_size: int = 10) -> None:
+        """Initialize berth state tracker.
+        
+        Args:
+            event_history_size: Maximum number of events to keep in history (1-50)
+        """
         self._berths: dict[str, dict[str, str]] = {}  # berth_id -> {description, timestamp}
+        self._event_history_size = self._validate_history_size(event_history_size)
+        self._event_history: deque[dict[str, Any]] = deque(maxlen=self._event_history_size)
+        self._platform_state: dict[str, dict[str, Any]] = {}  # platform_id -> {current_train, current_event, etc.}
+        self._berth_to_platform: dict[str, str] = {}  # berth_key -> platform_id mapping
+    
+    @staticmethod
+    def _validate_history_size(size: int) -> int:
+        """Validate and clamp event history size.
+        
+        Args:
+            size: Requested history size
+            
+        Returns:
+            Validated size clamped to valid range (1-50)
+        """
+        return max(1, min(50, size))
+    
+    def set_berth_to_platform_mapping(self, mapping: dict[str, str]) -> None:
+        """Set the mapping of berths to platforms.
+        
+        Args:
+            mapping: Dictionary mapping berth keys (area:berth) to platform IDs
+        """
+        self._berth_to_platform = mapping.copy()
+    
+    def set_event_history_size(self, size: int) -> None:
+        """Update the event history size.
+        
+        Args:
+            size: New maximum number of events to keep (1-50)
+        """
+        new_size = self._validate_history_size(size)
+        if new_size != self._event_history_size:
+            self._event_history_size = new_size
+            # Create new deque with new size and copy old events
+            old_events = list(self._event_history)
+            self._event_history = deque(old_events[-new_size:], maxlen=new_size)
+    
+    def _update_platform_idle(self, platform_id: str, timestamp: Any) -> None:
+        """Update platform state to idle.
+        
+        Args:
+            platform_id: Platform identifier
+            timestamp: Timestamp of the state change
+        """
+        if platform_id:
+            self._platform_state[platform_id] = {
+                "platform_id": platform_id,
+                "current_train": None,
+                "current_event": None,
+                "last_updated": timestamp,
+                "status": "idle",
+            }
+    
+    def _update_platform_active(self, platform_id: str, train_id: str, event_type: str, timestamp: Any) -> None:
+        """Update platform state to active.
+        
+        Args:
+            platform_id: Platform identifier
+            train_id: Train description
+            event_type: Event type (arrive, interpose, step)
+            timestamp: Timestamp of the state change
+        """
+        if platform_id:
+            self._platform_state[platform_id] = {
+                "platform_id": platform_id,
+                "current_train": train_id,
+                "current_event": event_type,
+                "last_updated": timestamp,
+                "status": "active",
+            }
     
     def update(self, parsed_message: dict[str, Any]) -> None:
         """Update berth state based on a TD message.
@@ -185,14 +261,41 @@ class BerthState:
         area_id = parsed_message.get("area_id")
         time = parsed_message.get("time")
         
+        # Create event record for history
+        event_record = {
+            "msg_type": msg_type,
+            "area_id": area_id,
+            "timestamp": time,
+        }
+        
         if msg_type == TD_MSG_CA:
             # Berth Step: move from one berth to another
             from_berth = f"{area_id}:{parsed_message.get('from_berth')}"
             to_berth = f"{area_id}:{parsed_message.get('to_berth')}"
             description = parsed_message.get("description", "")
             
+            # Add to event record
+            event_record.update({
+                "event_type": "step",
+                "from_berth": parsed_message.get("from_berth"),
+                "to_berth": parsed_message.get("to_berth"),
+                "train_id": description,
+            })
+            
+            # Get platform associations
+            from_platform = self._berth_to_platform.get(from_berth)
+            to_platform = self._berth_to_platform.get(to_berth)
+            
+            if from_platform:
+                event_record["from_platform"] = from_platform
+            if to_platform:
+                event_record["to_platform"] = to_platform
+            
             # Clear from berth
             self._berths.pop(from_berth, None)
+            
+            # Update platform state for departure
+            self._update_platform_idle(from_platform, time)
             
             # Set to berth
             self._berths[to_berth] = {
@@ -200,20 +303,59 @@ class BerthState:
                 "timestamp": time,
             }
             
+            # Update platform state for arrival
+            self._update_platform_active(to_platform, description, "arrive", time)
+            
         elif msg_type == TD_MSG_CB:
             # Berth Cancel: remove from berth
             from_berth = f"{area_id}:{parsed_message.get('from_berth')}"
+            description = parsed_message.get("description", "")
+            
+            # Add to event record
+            event_record.update({
+                "event_type": "cancel",
+                "from_berth": parsed_message.get("from_berth"),
+                "train_id": description,
+            })
+            
+            # Get platform association
+            from_platform = self._berth_to_platform.get(from_berth)
+            if from_platform:
+                event_record["platform"] = from_platform
+            
             self._berths.pop(from_berth, None)
+            
+            # Update platform state
+            self._update_platform_idle(from_platform, time)
             
         elif msg_type == TD_MSG_CC:
             # Berth Interpose: insert into berth
             to_berth = f"{area_id}:{parsed_message.get('to_berth')}"
             description = parsed_message.get("description", "")
             
+            # Add to event record
+            event_record.update({
+                "event_type": "interpose",
+                "to_berth": parsed_message.get("to_berth"),
+                "train_id": description,
+            })
+            
+            # Get platform association
+            to_platform = self._berth_to_platform.get(to_berth)
+            if to_platform:
+                event_record["platform"] = to_platform
+            
             self._berths[to_berth] = {
                 "description": description,
                 "timestamp": time,
             }
+            
+            # Update platform state
+            self._update_platform_active(to_platform, description, "interpose", time)
+        
+        # Add event to history (only for berth operations, not heartbeats)
+        if msg_type in (TD_MSG_CA, TD_MSG_CB, TD_MSG_CC):
+            self._event_history.append(event_record)
     
     def get_berth(self, area_id: str, berth_id: str) -> dict[str, str] | None:
         """Get the current state of a berth.
@@ -251,3 +393,83 @@ class BerthState:
             for berth_id, state in self._berths.items()
             if berth_id.startswith(prefix)
         }
+    
+    def get_platform_state(self, platform_id: str) -> dict[str, Any] | None:
+        """Get the current state of a platform.
+        
+        Args:
+            platform_id: Platform identifier (e.g., "1", "2A")
+            
+        Returns:
+            Dictionary with platform state or None if no state tracked
+        """
+        return self._platform_state.get(platform_id)
+    
+    def get_all_platform_states(self, selected_platforms: list[str] | None = None) -> dict[str, dict[str, Any]]:
+        """Get state for all tracked platforms or a filtered subset.
+        
+        Args:
+            selected_platforms: Optional list of platform IDs to filter by
+            
+        Returns:
+            Dictionary mapping platform IDs to their state
+        """
+        if selected_platforms is None:
+            return self._platform_state.copy()
+        
+        return {
+            pid: state
+            for pid, state in self._platform_state.items()
+            if pid in selected_platforms
+        }
+    
+    def get_event_history(self, platform_filter: list[str] | None = None) -> list[dict[str, Any]]:
+        """Get recent event history.
+        
+        Args:
+            platform_filter: Optional list of platform IDs to filter events by
+            
+        Returns:
+            List of event records, most recent last
+        """
+        events = list(self._event_history)
+        
+        if platform_filter is not None:
+            # Filter events that have platform association matching the filter
+            filtered = []
+            for event in events:
+                # Check if event has any platform field matching the filter
+                has_match = False
+                for key in ["platform", "from_platform", "to_platform"]:
+                    if key in event and event[key] in platform_filter:
+                        has_match = True
+                        break
+                if has_match:
+                    filtered.append(event)
+            return filtered
+        
+        return events
+    
+    def get_event_history_size(self) -> int:
+        """Get the configured event history size.
+        
+        Returns:
+            Maximum number of events kept in history
+        """
+        return self._event_history_size
+    
+    def initialize_platform_states(self, platforms: list[str]) -> None:
+        """Initialize platform states for tracking.
+        
+        Args:
+            platforms: List of platform IDs to track
+        """
+        for platform_id in platforms:
+            if platform_id not in self._platform_state:
+                self._platform_state[platform_id] = {
+                    "platform_id": platform_id,
+                    "current_train": None,
+                    "current_event": None,
+                    "last_updated": None,
+                    "status": "idle",
+                }

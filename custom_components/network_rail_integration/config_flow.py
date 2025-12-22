@@ -26,6 +26,8 @@ from .const import (
     CONF_DIAGRAM_RANGE,
     DEFAULT_TOPIC,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
+    DEFAULT_PLATFORM_RANGE_MIN,
+    DEFAULT_PLATFORM_RANGE_MAX,
     DOMAIN,
 )
 from .stanox_utils import search_stanox
@@ -555,7 +557,9 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             for area_id in td_areas:
                 if area_id not in self._discovered_platforms:
                     # Provide default set of platform numbers
-                    self._discovered_platforms[area_id] = [str(i) for i in range(1, 11)]
+                    self._discovered_platforms[area_id] = [
+                        str(i) for i in range(DEFAULT_PLATFORM_RANGE_MIN, DEFAULT_PLATFORM_RANGE_MAX + 1)
+                    ]
         
         # Build schema for area and platform selection
         area_options = [

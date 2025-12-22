@@ -18,7 +18,9 @@ CONF_DIAGRAM_ENABLED = "diagram_enabled"
 CONF_DIAGRAM_STANOX = "diagram_stanox"
 CONF_DIAGRAM_RANGE = "diagram_range"  # Number of stations each direction
 
-DEFAULT_TD_EVENT_HISTORY_SIZE = 10
+# Default platform range when SMART data is not available
+DEFAULT_PLATFORM_RANGE_MIN = 1
+DEFAULT_PLATFORM_RANGE_MAX = 10
 
 DEFAULT_TOPIC = "TRAIN_MVT_ALL_TOC"
 DEFAULT_TD_TOPIC = "TD_ALL_SIG_AREA"

@@ -179,10 +179,22 @@ class BerthState:
             event_history_size: Maximum number of events to keep in history (1-50)
         """
         self._berths: dict[str, dict[str, str]] = {}  # berth_id -> {description, timestamp}
-        self._event_history_size = max(1, min(50, event_history_size))
+        self._event_history_size = self._validate_history_size(event_history_size)
         self._event_history: deque[dict[str, Any]] = deque(maxlen=self._event_history_size)
         self._platform_state: dict[str, dict[str, Any]] = {}  # platform_id -> {current_train, current_event, etc.}
         self._berth_to_platform: dict[str, str] = {}  # berth_key -> platform_id mapping
+    
+    @staticmethod
+    def _validate_history_size(size: int) -> int:
+        """Validate and clamp event history size.
+        
+        Args:
+            size: Requested history size
+            
+        Returns:
+            Validated size clamped to valid range (1-50)
+        """
+        return max(1, min(50, size))
     
     def set_berth_to_platform_mapping(self, mapping: dict[str, str]) -> None:
         """Set the mapping of berths to platforms.
@@ -198,7 +210,7 @@ class BerthState:
         Args:
             size: New maximum number of events to keep (1-50)
         """
-        new_size = max(1, min(50, size))
+        new_size = self._validate_history_size(size)
         if new_size != self._event_history_size:
             self._event_history_size = new_size
             # Create new deque with new size and copy old events

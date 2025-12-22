@@ -342,7 +342,8 @@ class TrainDescriberStatusSensor(SensorEntity):
                             break
                     time_str = time_part[:8]  # HH:MM:SS
                 except (IndexError, ValueError):
-                    time_str = "??:??:??"
+                    # If parsing fails, omit timestamp rather than showing confusing placeholder
+                    time_str = ""
         
         # Format message count with comma separators
         count_str = f"{msg_count:,}"

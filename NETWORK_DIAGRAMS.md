@@ -321,9 +321,13 @@ This enables fast lookups when updating the sensor in response to TD messages.
 
 ### Wrong stations in "up" vs "down" connections
 
-**Cause**: The SMART data doesn't explicitly label direction; the integration infers it.
+**Cause**: The SMART data doesn't explicitly label direction; the integration uses a simple heuristic (even split) to divide adjacent stations.
 
-**Solution**: This is a known limitation. Adjacent stations are shown but may not be perfectly classified as "up" or "down" in all cases.
+**Solution**: This is a **known limitation**. Adjacent stations are correctly identified and shown, but may not be perfectly classified as "up" (towards London) or "down" (away from London). 
+
+**Workaround**: Treat both "up_connections" and "down_connections" as simply "adjacent_stations". The important information is which stations are connected and their berth occupancy, not the specific direction label.
+
+**Future Enhancement**: Proper direction classification would require additional metadata or manual configuration that is not currently available in SMART data alone.
 
 ## Reference: Traksy
 

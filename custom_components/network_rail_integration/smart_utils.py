@@ -220,8 +220,20 @@ def get_station_berths_with_connections(
         })
     
     # Split adjacent stations into up/down based on some heuristic
-    # For now, we'll just split them evenly
-    # In a production system, this would use actual direction data
+    # NOTE: This is a known limitation - SMART data does not include explicit
+    # direction information, so we cannot definitively determine which stations
+    # are "up" (towards London) vs "down" (away from London) in all cases.
+    # 
+    # Current approach: Split the list evenly. This is a naive heuristic that
+    # may not reflect actual railway geography.
+    #
+    # For a production implementation, this would require:
+    # - Additional metadata about station positions/directions
+    # - Route analysis to determine typical train flow patterns
+    # - Manual configuration or external data source for direction mapping
+    #
+    # Users should be aware that the "up_connections" and "down_connections" 
+    # labels are approximate and may not match official railway terminology.
     mid = len(adjacent_stations) // 2
     
     return {

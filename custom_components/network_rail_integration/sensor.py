@@ -781,78 +781,16 @@ class NetworkDiagramSensor(SensorEntity):
             })
         
         # Build up stations with occupancy
-        up_stations = []
-        for conn in station_data.get("up_connections", [])[:self._diagram_range]:
-            conn_stanox = conn.get("stanox")
-            conn_name = conn.get("stanme", "")
-            
-            conn_berths = []
-            if conn_stanox:
-                conn_berth_data = get_berths_for_stanox(graph, conn_stanox)
-                for berth_info in conn_berth_data:
-                    td_area = berth_info.get("td_area", "")
-                    from_berth = berth_info.get("from_berth", "")
-                    to_berth = berth_info.get("to_berth", "")
-                    
-                    # Check both from and to berths
-                    for berth_id in [from_berth, to_berth]:
-                        if berth_id and td_area:
-                            occupied = False
-                            headcode = None
-                            berth_data = berth_state.get_berth(td_area, berth_id)
-                            if berth_data:
-                                occupied = True
-                                headcode = berth_data.get("description")
-                            
-                            conn_berths.append({
-                                "berth_id": berth_id,
-                                "td_area": td_area,
-                                "occupied": occupied,
-                                "headcode": headcode,
-                            })
-            
-            up_stations.append({
-                "stanox": conn_stanox,
-                "name": conn_name,
-                "berths": conn_berths,
-            })
+        up_stations = self._build_station_berths_with_occupancy(
+            station_data.get("up_connections", []),
+            graph
+        )
         
         # Build down stations with occupancy
-        down_stations = []
-        for conn in station_data.get("down_connections", [])[:self._diagram_range]:
-            conn_stanox = conn.get("stanox")
-            conn_name = conn.get("stanme", "")
-            
-            conn_berths = []
-            if conn_stanox:
-                conn_berth_data = get_berths_for_stanox(graph, conn_stanox)
-                for berth_info in conn_berth_data:
-                    td_area = berth_info.get("td_area", "")
-                    from_berth = berth_info.get("from_berth", "")
-                    to_berth = berth_info.get("to_berth", "")
-                    
-                    # Check both from and to berths
-                    for berth_id in [from_berth, to_berth]:
-                        if berth_id and td_area:
-                            occupied = False
-                            headcode = None
-                            berth_data = berth_state.get_berth(td_area, berth_id)
-                            if berth_data:
-                                occupied = True
-                                headcode = berth_data.get("description")
-                            
-                            conn_berths.append({
-                                "berth_id": berth_id,
-                                "td_area": td_area,
-                                "occupied": occupied,
-                                "headcode": headcode,
-                            })
-            
-            down_stations.append({
-                "stanox": conn_stanox,
-                "name": conn_name,
-                "berths": conn_berths,
-            })
+        down_stations = self._build_station_berths_with_occupancy(
+            station_data.get("down_connections", []),
+            graph
+        )
         
         last_updated = self.smart_manager.get_last_updated()
         

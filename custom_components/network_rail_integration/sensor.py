@@ -321,8 +321,42 @@ class TrainDescriberStatusSensor(SensorEntity):
             if msg_count == 0:
                 return "Waiting for messages"
             return "No recent messages"
+        
         msg_type = msg.get("msg_type", "Unknown")
-        return f"{msg_type}"
+        description = msg.get("description", "")
+        time_ms = msg.get("time")
+        
+        # Format timestamp as HH:MM:SS
+        time_str = ""
+        if time_ms:
+            time_iso = _ms_to_local_iso(time_ms)
+            if time_iso:
+                # Extract time portion from ISO format
+                time_str = time_iso.split("T")[1].split("+")[0].split("-")[0][:8]
+        
+        # Format message count with comma separators
+        count_str = f"{msg_count:,}"
+        
+        # Build status message based on type
+        if msg_type == "CA":
+            from_berth = msg.get("from_berth", "")
+            to_berth = msg.get("to_berth", "")
+            train_desc = f"Train {description} " if description else ""
+            return f"CA - {train_desc}moved from {from_berth} to {to_berth} at {time_str} ({count_str} messages)"
+        elif msg_type == "CB":
+            from_berth = msg.get("from_berth", "")
+            train_desc = f"Train {description} " if description else ""
+            return f"CB - {train_desc}cancelled from {from_berth} at {time_str} ({count_str} messages)"
+        elif msg_type == "CC":
+            to_berth = msg.get("to_berth", "")
+            train_desc = f"Train {description} " if description else ""
+            return f"CC - {train_desc}interposed at {to_berth} at {time_str} ({count_str} messages)"
+        elif msg_type == "CT":
+            return f"CT - Heartbeat at {time_str} ({count_str} messages)"
+        elif msg_type in ("SF", "SG", "SH"):
+            return f"{msg_type} - Signal update at {time_str} ({count_str} messages)"
+        
+        return f"{msg_type} at {time_str} ({count_str} messages)"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

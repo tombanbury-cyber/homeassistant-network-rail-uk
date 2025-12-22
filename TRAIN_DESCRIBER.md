@@ -77,19 +77,118 @@ Shows the last TD message received and provides overall statistics.
 
 One sensor is created for each configured TD area (if area filtering is enabled).
 
-**Attributes**:
+**Attributes** (Enhanced in v1.8.0):
 - `area_id`: The TD area ID
+- `station_name`: Station name (if available from SMART data)
+- `station_code`: Station code or TD area ID
+- `selected_platforms`: List of platforms being tracked, or "all" if none configured
 - `berth_count`: Number of occupied berths in this area
-- `occupied_berths`: Dictionary of berth ID → train description
+- `occupied_berths`: Dictionary of berth ID → train description (backward compatibility)
+- **NEW in v1.8.0** - `platforms`: Dictionary of platform states:
+  ```python
+  {
+    "1": {
+      "platform_id": "1",
+      "current_train": "2A01",  # Train description from TD feed
+      "current_event": "arrive",  # or "interpose", "step", null
+      "last_updated": "2025-12-22T10:30:15+00:00",
+      "status": "active"  # or "idle"
+    },
+    "2": {
+      "platform_id": "2",
+      "current_train": null,
+      "current_event": null,
+      "last_updated": "2025-12-22T10:25:00+00:00",
+      "status": "idle"
+    }
+  }
+  ```
+- **NEW in v1.8.0** - `recent_events`: List of recent TD events with platform associations:
+  ```python
+  [
+    {
+      "event_type": "step",  # or "cancel", "interpose"
+      "train_id": "2A01",
+      "timestamp": "2025-12-22T10:30:15+00:00",
+      "area_id": "SK",
+      "from_platform": "1",
+      "to_platform": "2",
+      "from_berth": "M123",
+      "to_berth": "M124"
+    },
+    # ... up to configured history size (default 10)
+  ]
+  ```
+- **NEW in v1.8.0** - `event_history_size`: Maximum number of events kept in history
 - `last_msg_type`: Last message type received for this area
 - `last_time_local`: Local time of last message
 - Message-specific fields from last message
+
+## Multi-Platform Tracking (NEW in v1.8.0)
+
+The Train Describer integration now supports tracking multiple platforms simultaneously at a station, with configurable event history.
+
+### Configuration
+
+1. **Enable Train Describer** in the integration configuration
+2. **Configure TD Areas** to specify which TD area(s) to track
+3. **Configure Event History Size** (default: 10, range: 1-50) to control how many recent events to keep
+4. **Configure TD Platforms** to select which platforms to track for each area
+
+### Platform Discovery
+
+When you configure TD platforms, the integration will:
+- Automatically discover available platforms from SMART berth topology data
+- Present them as checkboxes for easy selection
+- Default to tracking all platforms if none are specifically selected
+- Fall back to a default list (platforms 1-10) if SMART data is unavailable
+
+### Platform State Tracking
+
+For each configured platform, the sensor tracks:
+- **current_train**: The train description currently occupying the platform
+- **current_event**: The most recent event type (arrive, interpose, step)
+- **last_updated**: Timestamp of the last platform activity
+- **status**: Either "active" (train present) or "idle" (platform empty)
+
+### Event History
+
+The sensor maintains a configurable history of recent TD events, with each event including:
+- Event type (step, cancel, interpose)
+- Train ID (description from TD feed)
+- Timestamp
+- Platform associations (from_platform, to_platform, or platform)
+- Berth information (from_berth, to_berth)
+
+Events are stored in a circular buffer and automatically filtered to only include events for configured platforms.
 
 ## Using TD Data
 
 ### Dashboard Cards
 
-Display berth occupancy in a dashboard:
+Display platform states in a dashboard:
+
+```yaml
+type: entities
+title: Platform Status - TD Area SK
+entities:
+  - entity: sensor.network_rail_integration_td_area_sk
+    type: attribute
+    attribute: platforms
+```
+
+Display recent events:
+
+```yaml
+type: entities
+title: Recent Train Events - TD Area SK
+entities:
+  - entity: sensor.network_rail_integration_td_area_sk
+    type: attribute
+    attribute: recent_events
+```
+
+Display berth occupancy in a dashboard (backward compatibility):
 
 ```yaml
 type: entities
@@ -118,7 +217,56 @@ entities:
 
 ### Automations
 
-Get notified when a train enters a specific berth:
+**NEW in v1.8.0** - Get notified when a train arrives at a specific platform:
+
+```yaml
+automation:
+  - alias: "Notify when train arrives at Platform 1"
+    trigger:
+      - platform: state
+        entity_id: sensor.network_rail_integration_td_area_sk
+    condition:
+      - condition: template
+        value_template: >
+          {% set platforms = state_attr('sensor.network_rail_integration_td_area_sk', 'platforms') %}
+          {{ platforms is not none and '1' in platforms and 
+             platforms['1'].current_event == 'arrive' and
+             platforms['1'].status == 'active' }}
+    action:
+      - service: notify.mobile_app
+        data:
+          message: >
+            Train {{ state_attr('sensor.network_rail_integration_td_area_sk', 'platforms')['1'].current_train }}
+            arriving at Platform 1
+```
+
+**NEW in v1.8.0** - Monitor when any platform becomes active:
+
+```yaml
+automation:
+  - alias: "Alert when any platform becomes active"
+    trigger:
+      - platform: state
+        entity_id: sensor.network_rail_integration_td_area_sk
+    condition:
+      - condition: template
+        value_template: >
+          {% set platforms = state_attr('sensor.network_rail_integration_td_area_sk', 'platforms') %}
+          {% if platforms %}
+            {{ platforms.values() | selectattr('status', 'equalto', 'active') | list | length > 0 }}
+          {% else %}
+            false
+          {% endif %}
+    action:
+      - service: notify.mobile_app
+        data:
+          message: >
+            {% set platforms = state_attr('sensor.network_rail_integration_td_area_sk', 'platforms') %}
+            {% set active = platforms.values() | selectattr('status', 'equalto', 'active') | list %}
+            {{ active | length }} platform(s) active
+```
+
+Get notified when a train enters a specific berth (classic method):
 
 ```yaml
 automation:

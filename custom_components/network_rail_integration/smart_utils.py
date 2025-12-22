@@ -356,3 +356,92 @@ def get_berth_route(
     # No path found
     _LOGGER.debug("No berth route found from %s to %s within %d hops", from_stanox, to_stanox, max_hops)
     return []
+
+
+def get_platforms_for_area(
+    graph: dict[str, Any],
+    td_area: str
+) -> list[str]:
+    """Get list of unique platform IDs for a TD area from SMART data.
+    
+    Args:
+        graph: SMART graph structure from SmartDataManager
+        td_area: TD area code (e.g., "SK")
+        
+    Returns:
+        Sorted list of unique platform identifiers found in this area
+        (e.g., ["1", "2", "3", "4A", "4B"])
+    """
+    platforms = set()
+    stanox_to_berths = graph.get("stanox_to_berths", {})
+    
+    # Scan all berth records for this TD area
+    for berth_records in stanox_to_berths.values():
+        for record in berth_records:
+            if record.get("td_area") == td_area:
+                platform = record.get("platform", "").strip()
+                if platform:
+                    platforms.add(platform)
+    
+    # Sort platforms naturally (1, 2, 3, ..., 10, 11, etc.)
+    return sorted(platforms, key=lambda x: (len(x), x))
+
+
+def get_berth_to_platform_mapping(
+    graph: dict[str, Any],
+    td_area: str
+) -> dict[str, str]:
+    """Get mapping of berth IDs to platform IDs for a TD area.
+    
+    Args:
+        graph: SMART graph structure from SmartDataManager
+        td_area: TD area code (e.g., "SK")
+        
+    Returns:
+        Dictionary mapping berth_id to platform ID
+        (e.g., {"M123": "1", "M124": "2"})
+    """
+    mapping = {}
+    stanox_to_berths = graph.get("stanox_to_berths", {})
+    
+    # Build mapping from berth records
+    for berth_records in stanox_to_berths.values():
+        for record in berth_records:
+            if record.get("td_area") == td_area:
+                platform = record.get("platform", "").strip()
+                if platform:
+                    from_berth = record.get("from_berth", "").strip()
+                    to_berth = record.get("to_berth", "").strip()
+                    
+                    if from_berth:
+                        mapping[from_berth] = platform
+                    if to_berth:
+                        mapping[to_berth] = platform
+    
+    return mapping
+
+
+def get_station_platforms(
+    graph: dict[str, Any],
+    stanox: str
+) -> list[str]:
+    """Get list of platforms for a specific station.
+    
+    Args:
+        graph: SMART graph structure from SmartDataManager
+        stanox: STANOX code for the station
+        
+    Returns:
+        Sorted list of unique platform identifiers at this station
+    """
+    platforms = set()
+    stanox_to_berths = graph.get("stanox_to_berths", {})
+    berth_records = stanox_to_berths.get(stanox, [])
+    
+    for record in berth_records:
+        platform = record.get("platform", "").strip()
+        if platform:
+            platforms.add(platform)
+    
+    # Sort platforms naturally
+    return sorted(platforms, key=lambda x: (len(x), x))

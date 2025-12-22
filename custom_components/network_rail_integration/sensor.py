@@ -349,8 +349,8 @@ class TrainDescriberStatusSensor(SensorEntity):
         
         # Build status message based on type
         if msg_type == "CA":
-            from_berth = msg.get("from_berth", "")
-            to_berth = msg.get("to_berth", "")
+            from_berth = msg.get("from_berth", "").strip()
+            to_berth = msg.get("to_berth", "").strip()
             train_desc = f"Train {description} " if description else ""
             # Handle empty berths
             if not from_berth or not to_berth:
@@ -360,16 +360,16 @@ class TrainDescriberStatusSensor(SensorEntity):
             time_suffix = f" at {time_str}" if time_str else ""
             return f"CA - {train_desc}moved {berth_info}{time_suffix} ({count_str} messages)"
         elif msg_type == "CB":
-            from_berth = msg.get("from_berth", "")
+            from_berth = msg.get("from_berth", "").strip()
             train_desc = f"Train {description} " if description else ""
             berth_info = f"from {from_berth}" if from_berth else "from unknown berth"
             time_suffix = f" at {time_str}" if time_str else ""
             return f"CB - {train_desc}cancelled {berth_info}{time_suffix} ({count_str} messages)"
         elif msg_type == "CC":
-            to_berth = msg.get("to_berth", "")
+            to_berth = msg.get("to_berth", "").strip()
             train_desc = f"Train {description} " if description else ""
             berth_info = f"at {to_berth}" if to_berth else "at unknown berth"
-            time_suffix = f" {time_str}" if time_str else ""
+            time_suffix = f" at {time_str}" if time_str else ""
             return f"CC - {train_desc}interposed {berth_info}{time_suffix} ({count_str} messages)"
         elif msg_type == "CT":
             time_suffix = f" at {time_str}" if time_str else ""

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.2] - 2025-12-23
+
+### Fixed
+- **Train Describer List-Format Messages**: Fixed issue where Train Describer messages arriving in list format were not being received
+  - TD messages from Network Rail arrive in list format (similar to train movements), not as bare dicts
+  - Previously, the code only checked for TD messages when payload was a bare dict, missing list-wrapped TD messages
+  - Added detection logic to identify and process TD messages within lists by checking for keys ending in `_MSG`
+  - Each TD message in the list is now validated and processed through `_handle_td_message()`
+  - Debug logging now shows "Received list with TD messages" when list-format TD messages are detected
+  - This fix enables TD sensors to populate with berth occupancy data and display message counts correctly
+
 ## [1.11.0] - 2025-12-22
 
 ### Changed

@@ -553,14 +553,13 @@ class TrainDescriberAreaSensor(SensorEntity):
                 for record in berth_records:
                     if record.get("td_area") == self._area_id:
                         stanme = record.get("stanme", "").strip()
-                        if stanme and stanox:
+                        if stanme and stanox and stanox.strip():
                             found_stations.add((stanox, stanme))
             
             if found_stations:
                 # Sort by STANOX and use the first station
                 sorted_stations = sorted(found_stations)
-                station_code = sorted_stations[0][0]  # STANOX
-                station_name = sorted_stations[0][1]  # Station name
+                station_code, station_name = sorted_stations[0]
                 
                 # Store all stations for reference
                 stations_in_area = [

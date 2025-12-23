@@ -208,7 +208,7 @@ class OpenRailDataHub:
                         # If we processed any TD messages, mark as seen and return
                         if td_count > 0:
                             self._hub.debug_logger.debug("Processed %d TD messages from list", td_count)
-                            self._mark_seen(len(payload))
+                            self._mark_seen(td_count)
                             return
 
                 options = _read_options()

@@ -27,7 +27,7 @@ from .const import (
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name, get_formatted_station_name
-from .td_area_codes import format_td_area_title
+from .td_area_codes import format_td_area_title, get_td_area_name
 from .debug_log import DebugLogSensor
 
 
@@ -540,12 +540,37 @@ class TrainDescriberAreaSensor(SensorEntity):
         smart_manager = self.hass.data.get(DOMAIN, {}).get(f"{self.entry.entry_id}_smart_manager")
         station_name = None
         station_code = None
+        stations_in_area = []
         
         if smart_manager and smart_manager.is_available():
-            # Try to find station name from SMART data
-            # This is a simplified approach - in practice you'd need to map TD area to STANOX
-            from .stanox_utils import get_station_name
-            # For now, we'll just use the area_id as a placeholder
+            # Try to find stations in this TD area from SMART data
+            graph = smart_manager.get_graph()
+            stanox_to_berths = graph.get("stanox_to_berths", {})
+            
+            # Find all unique stations in this TD area
+            # Note: For large datasets, consider caching or indexing by TD area
+            found_stations = set()
+            for stanox, berth_records in stanox_to_berths.items():
+                for record in berth_records:
+                    if record.get("td_area") == self._area_id:
+                        stanme = record.get("stanme", "").strip()
+                        if stanme and stanox and stanox.strip():
+                            found_stations.add((stanox, stanme))
+            
+            if found_stations:
+                # Sort by STANOX and use the first station
+                sorted_stations = sorted(found_stations)
+                station_code, station_name = sorted_stations[0]
+                
+                # Store all stations for reference
+                stations_in_area = [
+                    {"stanox": stanox, "name": name} 
+                    for stanox, name in sorted_stations
+                ]
+        
+        # Fallback to TD area name if no SMART data or no stations found
+        if not station_name:
+            station_name = get_td_area_name(self._area_id) or f"TD Area {self._area_id}"
             station_code = self._area_id
         
         attrs = {
@@ -555,6 +580,10 @@ class TrainDescriberAreaSensor(SensorEntity):
             "berth_count": len(area_berths),
             "occupied_berths": {},
         }
+        
+        # Add list of stations if we found multiple
+        if stations_in_area:
+            attrs["stations_in_area"] = stations_in_area
         
         # Add platform states in the new format
         if platform_states:

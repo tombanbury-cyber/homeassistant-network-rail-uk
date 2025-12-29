@@ -26,7 +26,7 @@ from .const import (
     DEFAULT_TD_EVENT_HISTORY_SIZE,
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
-from .stanox_utils import get_station_name, get_formatted_station_name
+from .stanox_utils import get_station_name, get_formatted_station_name, load_stanox_data
 from .td_area_codes import format_td_area_title, get_td_area_name
 from .debug_log import DebugLogSensor
 
@@ -36,6 +36,9 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    # Preload STANOX data to avoid blocking I/O later
+    await load_stanox_data()
+    
     hub = hass.data[DOMAIN][entry.entry_id]
     
     entities = []

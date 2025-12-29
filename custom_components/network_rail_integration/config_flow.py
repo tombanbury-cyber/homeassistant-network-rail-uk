@@ -28,7 +28,7 @@ from .const import (
     DEFAULT_TD_EVENT_HISTORY_SIZE,
     DOMAIN,
 )
-from .stanox_utils import search_stanox, get_formatted_station_name
+from .stanox_utils import search_stanox, get_formatted_station_name_async
 
 
 class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -151,7 +151,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 enabled = diagram.get("enabled", False)
                 diagram_range = diagram.get("range", 1)
                 status = "✓" if enabled else "✗"
-                station_name = get_formatted_station_name(stanox) or stanox
+                station_name = await get_formatted_station_name_async(stanox) or stanox
                 description += f"\n  {status} {station_name} ({stanox}, range: {diagram_range})"
         
         schema = vol.Schema(
@@ -191,9 +191,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:
                 query = user_input["station_query"]
-                self._search_results = await self.hass.async_add_executor_job(
-                    search_stanox, query, 50
-                )
+                self._search_results = await search_stanox(query, 50)
                 
                 if not self._search_results:
                     errors["station_query"] = "no_results"
@@ -268,9 +266,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:
                 query = user_input["station_query"]
-                self._search_results = await self.hass.async_add_executor_job(
-                    search_stanox, query, 50
-                )
+                self._search_results = await search_stanox(query, 50)
                 
                 if not self._search_results:
                     errors["station_query"] = "no_results"
@@ -471,7 +467,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 enabled = diagram.get("enabled", False)
                 diagram_range = diagram.get("range", 1)
                 status = "✓ Enabled" if enabled else "✗ Disabled"
-                station_name = get_formatted_station_name(stanox) or stanox
+                station_name = await get_formatted_station_name_async(stanox) or stanox
                 description += f"  • {station_name} ({stanox}) - Range: {diagram_range} - {status}\n"
         else:
             description += "No diagrams configured yet. Add a diagram to get started."
@@ -533,9 +529,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:
                 query = user_input["station_query"]
-                self._search_results = await self.hass.async_add_executor_job(
-                    search_stanox, query, 50
-                )
+                self._search_results = await search_stanox(query, 50)
                 
                 if not self._search_results:
                     errors["station_query"] = "no_results"
@@ -641,7 +635,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         # If we're editing a specific diagram, show edit form
         if self._diagram_to_edit is not None:
             stanox = self._diagram_to_edit.get("stanox", "")
-            station_name = get_formatted_station_name(stanox) or stanox
+            station_name = await get_formatted_station_name_async(stanox) or stanox
             
             schema = vol.Schema(
                 {
@@ -672,13 +666,14 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             )
         
         # Show selection of diagrams to edit
-        diagram_options = [
-            {
-                "label": f"{get_formatted_station_name(d.get('stanox')) or d.get('stanox')} ({d.get('stanox')}) - Range: {d.get('range', 1)} - {'Enabled' if d.get('enabled', False) else 'Disabled'}",
-                "value": d.get("stanox", ""),
-            }
-            for d in diagram_configs
-        ]
+        diagram_options = []
+        for d in diagram_configs:
+            stanox = d.get('stanox', '')
+            station_name = await get_formatted_station_name_async(stanox) or stanox
+            diagram_options.append({
+                "label": f"{station_name} ({stanox}) - Range: {d.get('range', 1)} - {'Enabled' if d.get('enabled', False) else 'Disabled'}",
+                "value": stanox,
+            })
         
         schema = vol.Schema(
             {
@@ -730,13 +725,14 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_configure_network_diagrams()
         
         # Show selection of diagrams to delete
-        diagram_options = [
-            {
-                "label": f"{get_formatted_station_name(d.get('stanox')) or d.get('stanox')} ({d.get('stanox')}) - Range: {d.get('range', 1)}",
-                "value": d.get("stanox", ""),
-            }
-            for d in diagram_configs
-        ]
+        diagram_options = []
+        for d in diagram_configs:
+            stanox = d.get('stanox', '')
+            station_name = await get_formatted_station_name_async(stanox) or stanox
+            diagram_options.append({
+                "label": f"{station_name} ({stanox}) - Range: {d.get('range', 1)}",
+                "value": stanox,
+            })
         
         schema = vol.Schema(
             {

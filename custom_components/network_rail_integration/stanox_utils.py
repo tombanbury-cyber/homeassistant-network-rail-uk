@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import logging
 from pathlib import Path
@@ -13,8 +14,37 @@ _stanox_data: list[dict[str, str]] | None = None
 _stanox_lookup: dict[str, str] | None = None
 
 
-def load_stanox_data() -> list[dict[str, str]]:
-    """Load STANOX reference data from CSV file.
+def _read_csv_file(csv_path: Path) -> tuple[list[dict[str, str]], dict[str, str]]:
+    """Read CSV file synchronously (to be run in executor).
+    
+    Args:
+        csv_path: Path to the CSV file
+        
+    Returns:
+        Tuple of (data list, lookup dict)
+    """
+    data = []
+    lookup = {}
+    
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) >= 2:
+                stanox = row[0].strip()
+                stanme = row[1].strip()
+                if stanox and stanme:
+                    data.append({
+                        "stanox": stanox,
+                        "stanme": stanme,
+                    })
+                    # Build lookup dictionary for O(1) access
+                    lookup[stanox] = stanme
+    
+    return data, lookup
+
+
+async def load_stanox_data() -> list[dict[str, str]]:
+    """Load STANOX reference data from CSV file asynchronously.
 
     Returns:
         A list of dictionaries with 'stanox' and 'stanme' keys.
@@ -38,19 +68,8 @@ def load_stanox_data() -> list[dict[str, str]]:
             _LOGGER.error("STANOX reference data path is not a file: %s", csv_path)
             return _stanox_data
         
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 2:
-                    stanox = row[0].strip()
-                    stanme = row[1].strip()
-                    if stanox and stanme:
-                        _stanox_data.append({
-                            "stanox": stanox,
-                            "stanme": stanme,
-                        })
-                        # Build lookup dictionary for O(1) access
-                        _stanox_lookup[stanox] = stanme
+        # Run file I/O in a separate thread to avoid blocking
+        _stanox_data, _stanox_lookup = await asyncio.to_thread(_read_csv_file, csv_path)
         
         _LOGGER.debug("Loaded %d STANOX entries", len(_stanox_data))
     except Exception as exc:
@@ -61,13 +80,13 @@ def load_stanox_data() -> list[dict[str, str]]:
     return _stanox_data
 
 
-def get_stanox_options() -> list[dict[str, str]]:
+async def get_stanox_options() -> list[dict[str, str]]:
     """Get STANOX options formatted for Home Assistant selector.
 
     Returns:
         A list of dicts with 'value' (stanox) and 'label' (formatted display string).
     """
-    data = load_stanox_data()
+    data = await load_stanox_data()
     
     options = []
     for entry in data:
@@ -83,7 +102,7 @@ def get_stanox_options() -> list[dict[str, str]]:
     return options
 
 
-def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
+async def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
     """Search STANOX data by station name or code.
 
     Args:
@@ -96,7 +115,7 @@ def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
     if not query:
         return []
     
-    data = load_stanox_data()
+    data = await load_stanox_data()
     query_lower = query.lower()
     
     results = []
@@ -211,7 +230,34 @@ def format_station_name(raw_name: str | None) -> str | None:
 
 
 def get_station_name(stanox: str | None) -> str | None:
-    """Get the station name for a given STANOX code.
+    """Get the station name for a given STANOX code (sync version).
+    
+    This function returns the station name if data is already loaded,
+    otherwise returns None. Use async version or ensure data is preloaded.
+    
+    Args:
+        stanox: The STANOX code to look up
+        
+    Returns:
+        The station name, or None if not found or data not loaded
+    """
+    if not stanox:
+        return None
+    
+    global _stanox_lookup
+    
+    # Only works if data is already loaded
+    if _stanox_lookup is None:
+        return None
+    
+    stanox_str = str(stanox).strip()
+    return _stanox_lookup.get(stanox_str)
+
+
+async def get_station_name_async(stanox: str | None) -> str | None:
+    """Get the station name for a given STANOX code (async version).
+    
+    This function loads data if needed.
     
     Args:
         stanox: The STANOX code to look up
@@ -226,17 +272,33 @@ def get_station_name(stanox: str | None) -> str | None:
     
     # Ensure data is loaded
     if _stanox_lookup is None:
-        load_stanox_data()
+        await load_stanox_data()
     
     stanox_str = str(stanox).strip()
     return _stanox_lookup.get(stanox_str) if _stanox_lookup else None
 
 
 def get_formatted_station_name(stanox: str | None) -> str | None:
-    """Get the formatted station name for a given STANOX code.
+    """Get the formatted station name for a given STANOX code (sync version).
     
     This returns a human-readable version of the station name (e.g., "Canterbury West"
-    instead of "CANTBURYW").
+    instead of "CANTBURYW"). Only works if data is already loaded.
+    
+    Args:
+        stanox: The STANOX code to look up
+        
+    Returns:
+        The formatted station name, or None if not found or data not loaded
+    """
+    raw_name = get_station_name(stanox)
+    return format_station_name(raw_name)
+
+
+async def get_formatted_station_name_async(stanox: str | None) -> str | None:
+    """Get the formatted station name for a given STANOX code (async version).
+    
+    This returns a human-readable version of the station name (e.g., "Canterbury West"
+    instead of "CANTBURYW"). Loads data if needed.
     
     Args:
         stanox: The STANOX code to look up
@@ -244,5 +306,5 @@ def get_formatted_station_name(stanox: str | None) -> str | None:
     Returns:
         The formatted station name, or None if not found
     """
-    raw_name = get_station_name(stanox)
+    raw_name = await get_station_name_async(stanox)
     return format_station_name(raw_name)

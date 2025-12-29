@@ -15,7 +15,14 @@ _stanox_lookup: dict[str, str] | None = None
 
 
 def _read_csv_file(csv_path: Path) -> tuple[list[dict[str, str]], dict[str, str]]:
-    """Read CSV file synchronously (to be run in a separate thread).
+    """Read CSV file synchronously in a separate thread via asyncio.to_thread().
+    
+    This function performs blocking I/O and should not be called directly
+    from async code. Instead, it's designed to be run in a separate thread
+    via `asyncio.to_thread(_read_csv_file, csv_path)`.
+    
+    Returns both data structures instead of modifying globals to ensure
+    thread safety and make the function pure.
     
     Args:
         csv_path: Path to the CSV file
@@ -278,8 +285,9 @@ async def get_station_name_async(stanox: str | None) -> str | None:
     if _stanox_lookup is None:
         await load_stanox_data()
     
+    # _stanox_lookup is guaranteed to be a dict (possibly empty) after load_stanox_data
     stanox_str = str(stanox).strip()
-    return _stanox_lookup.get(stanox_str) if _stanox_lookup else None
+    return _stanox_lookup.get(stanox_str)
 
 
 def get_formatted_station_name(stanox: str | None) -> str | None:

@@ -1005,27 +1005,44 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             section_name = user_input.get("section_name")
             
-            # Find the section and update alert services
-            for section in track_sections:
-                if section.get("name") == section_name:
-                    section["alert_services"] = {
-                        "freight": user_input.get("alert_freight", False),
-                        "rhtt": user_input.get("alert_rhtt", False),
-                        "steam": user_input.get("alert_steam", False),
-                        "charter": user_input.get("alert_charter", False),
-                        "pullman": user_input.get("alert_pullman", False),
-                        "royal_train": user_input.get("alert_royal_train", False),
-                    }
-                    break
-            
-            opts[CONF_TRACK_SECTIONS] = track_sections
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, options=opts
-            )
-            return self.async_create_entry(title="", data=opts)
+            # If section_name is in user_input, we're on the selection step
+            # If not, we're on the configuration step
+            if section_name and not any(k.startswith("alert_") for k in user_input.keys()):
+                # Selection step - move to configuration
+                self._track_section_to_configure = section_name
+                # Recursively call to show configuration form
+                return await self.async_step_configure_track_section_alerts()
+            else:
+                # Configuration step - save the alert settings
+                # Use stored section name from selection step
+                section_name = getattr(self, "_track_section_to_configure", None)
+                if not section_name:
+                    return await self.async_step_init()
+                
+                # Find the section and update alert services
+                for section in track_sections:
+                    if section.get("name") == section_name:
+                        section["alert_services"] = {
+                            "freight": user_input.get("alert_freight", False),
+                            "rhtt": user_input.get("alert_rhtt", False),
+                            "steam": user_input.get("alert_steam", False),
+                            "charter": user_input.get("alert_charter", False),
+                            "pullman": user_input.get("alert_pullman", False),
+                            "royal_train": user_input.get("alert_royal_train", False),
+                        }
+                        break
+                
+                opts[CONF_TRACK_SECTIONS] = track_sections
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=opts
+                )
+                # Clear the stored section name
+                self._track_section_to_configure = None
+                return self.async_create_entry(title="", data=opts)
         
-        # First step: select which section to configure
-        if not hasattr(self, "_track_section_to_configure"):
+        # Check if we're on selection step or configuration step
+        if not hasattr(self, "_track_section_to_configure") or self._track_section_to_configure is None:
+            # Selection step: show list of sections to choose from
             options = []
             for section in track_sections:
                 name = section.get("name", "Unknown")
@@ -1055,11 +1072,13 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 }
             )
         
-        # Second step: configure alerts for selected section
+        # Configuration step: show alert settings for selected section
         section_name = self._track_section_to_configure
         section = next((s for s in track_sections if s.get("name") == section_name), None)
         
         if not section:
+            # Section not found, reset and go back
+            self._track_section_to_configure = None
             return await self.async_step_init()
         
         alert_services = section.get("alert_services", {})

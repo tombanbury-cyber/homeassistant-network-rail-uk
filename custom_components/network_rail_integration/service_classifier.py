@@ -229,8 +229,9 @@ def _detect_special_services(vstp_data: dict[str, Any] | None, headcode: str) ->
         # Check VSTP for steam power type
         if vstp_data:
             power_type = vstp_data.get("CIF_power_type", "")
-            if power_type in ["HST", "STEAM"]:  # Note: STEAM might not be in standard codes
-                special_types.append("steam")
+            # Note: Steam locomotives typically don't have a specific power type code
+            # They are usually identified by headcode (1Zxx charter trains)
+            # or special operating characteristics in VSTP data
     
     # Check for Pullman/Luxury services
     if vstp_data:

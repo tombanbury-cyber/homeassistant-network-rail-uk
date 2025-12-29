@@ -1100,7 +1100,7 @@ class TrackSectionSensor(SensorEntity):
         if not self.smart_manager or not self.smart_manager.is_available():
             return
         
-        from .smart_utils import get_berths_for_stanox, get_adjacent_berths
+        from .smart_utils import get_berths_for_stanox
         
         graph = self.smart_manager.get_graph()
         
@@ -1282,13 +1282,17 @@ class TrackSectionSensor(SensorEntity):
             return 0
     
     def _calculate_berths_ahead(self, train_data: dict[str, Any]) -> list[str]:
-        """Calculate berths ahead of train in section."""
+        """Calculate berths ahead of train in section.
+        
+        TODO: Implement this using SMART data to find berths ahead in the direction of travel.
+        For now, returns empty list as this is an enhancement for future releases.
+        """
         current_berth = train_data.get("current_berth")
         if not current_berth or not self.smart_manager or not self.smart_manager.is_available():
             return []
         
-        # For now, return empty list
-        # In a full implementation, we would use SMART data to find berths ahead
+        # Future implementation: Use SMART data to traverse berth connections
+        # and find berths ahead based on direction of travel
         return []
     
     def _fire_track_alert(self, headcode: str, train_data: dict[str, Any], alert_reason: str) -> None:

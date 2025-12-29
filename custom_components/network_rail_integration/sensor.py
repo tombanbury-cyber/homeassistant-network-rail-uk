@@ -106,6 +106,16 @@ async def async_setup_entry(
                 if diagram_stanox:
                     entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
     
+    # Add Track Section sensors for each configured section
+    from .const import CONF_TRACK_SECTIONS
+    track_sections = options.get(CONF_TRACK_SECTIONS, [])
+    vstp_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_vstp_manager")
+    if track_sections:
+        for section in track_sections:
+            section_name = section.get("name")
+            if section_name:
+                entities.append(TrackSectionSensor(hass, entry, hub, section, vstp_manager, smart_manager))
+    
     # Add debug log sensor
     debug_sensor = DebugLogSensor(hass, entry)
     entities.append(debug_sensor)
@@ -937,3 +947,368 @@ class NetworkDiagramSensor(SensorEntity):
             "smart_data_last_updated": last_updated.isoformat() if last_updated else None,
             "diagram_range": self._diagram_range,
         }
+
+
+class TrackSectionSensor(SensorEntity):
+    """Sensor that monitors trains along a defined track section."""
+    
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:train-car-container"
+    
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        hub,
+        section_config: dict[str, Any],
+        vstp_manager,
+        smart_manager,
+    ) -> None:
+        """Initialize the track section sensor."""
+        self.hass = hass
+        self.entry = entry
+        self.hub = hub
+        self.vstp_manager = vstp_manager
+        self.smart_manager = smart_manager
+        
+        # Section configuration
+        self._section_name = section_config.get("name", "Unknown")
+        self._center_stanox = section_config.get("center_stanox", "")
+        self._berth_range = section_config.get("berth_range", 3)
+        self._td_areas = section_config.get("td_areas", [])
+        self._alert_services = section_config.get("alert_services", {})
+        
+        # Train tracking
+        self._trains_in_section: dict[str, dict[str, Any]] = {}
+        
+        # Section berths (calculated from SMART data)
+        self._section_berths: set[str] = set()
+        self._calculate_section_berths()
+        
+        self._unsub_td = None
+        self._unsub_vstp = None
+    
+    @property
+    def unique_id(self) -> str:
+        """Return unique ID."""
+        return f"{self.entry.entry_id}_track_section_{self._section_name.lower().replace(' ', '_')}"
+    
+    @property
+    def name(self) -> str:
+        """Return sensor name."""
+        return f"Track Section {self._section_name}"
+    
+    @property
+    def native_value(self) -> int:
+        """Return the state of the sensor."""
+        return len(self._trains_in_section)
+    
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return sensor attributes."""
+        trains_list = []
+        alert_count = 0
+        
+        for train_id, train_data in self._trains_in_section.items():
+            train_info = {
+                "train_id": train_id,
+                "headcode": train_data.get("headcode", train_id),
+                "current_berth": train_data.get("current_berth"),
+                "current_platform": train_data.get("current_platform"),
+                "direction": train_data.get("direction"),
+                "entered_section_at": train_data.get("entered_at"),
+                "time_in_section_seconds": self._calculate_time_in_section(train_data),
+                "berths_visited": train_data.get("berths_visited", []),
+                "berths_ahead": self._calculate_berths_ahead(train_data),
+            }
+            
+            # Add VSTP data if available
+            vstp_data = train_data.get("vstp_data")
+            if vstp_data:
+                train_info.update({
+                    "service_type": train_data.get("service_type"),
+                    "category": vstp_data.get("CIF_train_category"),
+                    "origin": train_data.get("origin"),
+                    "destination": train_data.get("destination"),
+                    "operator": train_data.get("operator"),
+                    "power_type": vstp_data.get("CIF_power_type"),
+                    "train_class": vstp_data.get("train_class"),
+                    "next_scheduled_stop": train_data.get("next_stop"),
+                    "scheduled_arrival": train_data.get("scheduled_arrival"),
+                    "scheduled_platform": train_data.get("scheduled_platform"),
+                    "running_status": train_data.get("running_status", "unknown"),
+                })
+            
+            # Add alert information
+            if train_data.get("triggers_alert", False):
+                alert_count += 1
+                train_info["triggers_alert"] = True
+                train_info["alert_reason"] = train_data.get("alert_reason")
+            else:
+                train_info["triggers_alert"] = False
+                train_info["alert_reason"] = None
+            
+            trains_list.append(train_info)
+        
+        return {
+            "trains_in_section": trains_list,
+            "section_config": {
+                "name": self._section_name,
+                "center_stanox": self._center_stanox,
+                "berth_range": self._berth_range,
+                "td_areas": self._td_areas,
+            },
+            "section_berths": list(self._section_berths),
+            "total_trains": len(self._trains_in_section),
+            "alert_trains": alert_count,
+        }
+    
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Track Section Monitor",
+        )
+    
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to TD and VSTP events."""
+        from .const import DISPATCH_TD, DISPATCH_VSTP
+        
+        # Subscribe to TD events
+        self._unsub_td = async_dispatcher_connect(
+            self.hass, DISPATCH_TD, self._handle_td_message
+        )
+        
+        # Subscribe to VSTP events if manager is available
+        if self.vstp_manager:
+            self._unsub_vstp = async_dispatcher_connect(
+                self.hass, DISPATCH_VSTP, self._handle_vstp_message
+            )
+    
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe from events."""
+        if self._unsub_td:
+            self._unsub_td()
+        if self._unsub_vstp:
+            self._unsub_vstp()
+    
+    def _calculate_section_berths(self) -> None:
+        """Calculate which berths are in this section using SMART data."""
+        if not self.smart_manager or not self.smart_manager.is_available():
+            return
+        
+        from .smart_utils import get_berths_for_stanox
+        
+        graph = self.smart_manager.get_graph()
+        
+        # Get berths at center station
+        center_berths = get_berths_for_stanox(graph, self._center_stanox)
+        
+        # Add center berths to section
+        for berth_info in center_berths:
+            td_area = berth_info.get("td_area", "")
+            from_berth = berth_info.get("from_berth", "")
+            to_berth = berth_info.get("to_berth", "")
+            
+            if from_berth:
+                self._section_berths.add(f"{td_area}:{from_berth}")
+            if to_berth:
+                self._section_berths.add(f"{td_area}:{to_berth}")
+        
+        # If no SMART data available or no TD areas configured, use TD areas from config
+        if not self._section_berths and self._td_areas:
+            # This is a fallback - we'll just monitor all berths in configured areas
+            pass
+    
+    @callback
+    def _handle_td_message(self, td_message: dict[str, Any]) -> None:
+        """Handle TD message and update train positions."""
+        msg_type = td_message.get("msg_type")
+        area_id = td_message.get("area_id")
+        
+        # Check if this message is for our monitored areas
+        if self._td_areas and area_id not in self._td_areas:
+            return
+        
+        # Handle berth step (CA) - train moved from one berth to another
+        if msg_type == "CA":
+            from_berth = td_message.get("from")
+            to_berth = td_message.get("to")
+            headcode = td_message.get("descr")
+            
+            if not headcode:
+                return
+            
+            from_berth_key = f"{area_id}:{from_berth}" if from_berth else None
+            to_berth_key = f"{area_id}:{to_berth}" if to_berth else None
+            
+            # Check if train is entering, leaving, or moving within section
+            from_in_section = from_berth_key in self._section_berths if from_berth_key else False
+            to_in_section = to_berth_key in self._section_berths if to_berth_key else False
+            
+            if to_in_section and not from_in_section:
+                # Train entering section
+                self._train_entered_section(to_berth_key, headcode, td_message)
+            elif from_in_section and not to_in_section:
+                # Train leaving section
+                self._train_left_section(headcode)
+            elif from_in_section and to_in_section:
+                # Train moving within section
+                self._train_moved_in_section(from_berth_key, to_berth_key, headcode, td_message)
+        
+        # Handle berth cancel (CB) - train disappeared from berth
+        elif msg_type == "CB":
+            from_berth = td_message.get("from")
+            headcode = td_message.get("descr")
+            
+            if headcode and from_berth:
+                from_berth_key = f"{area_id}:{from_berth}"
+                if from_berth_key in self._section_berths:
+                    # Train cancelled in section - remove it
+                    self._train_left_section(headcode)
+        
+        # Handle berth interpose (CC) - train appeared in berth
+        elif msg_type == "CC":
+            to_berth = td_message.get("to")
+            headcode = td_message.get("descr")
+            
+            if headcode and to_berth:
+                to_berth_key = f"{area_id}:{to_berth}"
+                if to_berth_key in self._section_berths:
+                    # Train interposed in section
+                    self._train_entered_section(to_berth_key, headcode, td_message)
+        
+        # Trigger update
+        self.async_write_ha_state()
+    
+    @callback
+    def _handle_vstp_message(self, vstp_message: dict[str, Any]) -> None:
+        """Handle VSTP message and enrich train data."""
+        # VSTP messages are processed by vstp_manager
+        # We'll query it when we need schedule data
+        pass
+    
+    def _train_entered_section(self, berth: str, headcode: str, td_message: dict[str, Any]) -> None:
+        """Handle train entering the section."""
+        now = dt_util.now()
+        
+        # Get VSTP data if available
+        vstp_data = None
+        service_classification = None
+        if self.vstp_manager:
+            vstp_data = self.vstp_manager.get_schedule_for_headcode(headcode)
+            
+            if vstp_data:
+                # Classify the service
+                from .service_classifier import classify_service
+                service_classification = classify_service(vstp_data, headcode)
+        
+        # Create train data
+        train_data = {
+            "headcode": headcode,
+            "current_berth": berth,
+            "entered_at": now.isoformat(),
+            "berths_visited": [berth],
+            "td_message": td_message,
+        }
+        
+        # Add VSTP enrichment if available
+        if vstp_data and service_classification:
+            origin, destination = self.vstp_manager.get_origin_destination(vstp_data) if self.vstp_manager else (None, None)
+            
+            train_data.update({
+                "vstp_data": vstp_data,
+                "service_type": service_classification.get("service_type"),
+                "service_category": service_classification.get("service_category"),
+                "description": service_classification.get("description"),
+                "origin": origin,
+                "destination": destination,
+                "is_freight": service_classification.get("is_freight", False),
+                "is_passenger": service_classification.get("is_passenger", False),
+                "is_special": service_classification.get("is_special", False),
+                "special_types": service_classification.get("special_types", []),
+            })
+            
+            # Check if this should trigger an alert
+            from .service_classifier import should_alert_for_service
+            should_alert, alert_reason = should_alert_for_service(service_classification, self._alert_services)
+            train_data["triggers_alert"] = should_alert
+            train_data["alert_reason"] = alert_reason
+            
+            # Fire alert event if needed
+            if should_alert:
+                self._fire_track_alert(headcode, train_data, alert_reason)
+        
+        # Store train data
+        self._trains_in_section[headcode] = train_data
+    
+    def _train_left_section(self, headcode: str) -> None:
+        """Handle train leaving the section."""
+        if headcode in self._trains_in_section:
+            del self._trains_in_section[headcode]
+    
+    def _train_moved_in_section(
+        self, 
+        from_berth: str, 
+        to_berth: str, 
+        headcode: str,
+        td_message: dict[str, Any]
+    ) -> None:
+        """Handle train moving within the section."""
+        if headcode in self._trains_in_section:
+            train_data = self._trains_in_section[headcode]
+            train_data["current_berth"] = to_berth
+            train_data["berths_visited"].append(to_berth)
+            train_data["td_message"] = td_message
+        else:
+            # Train wasn't tracked - add it now
+            self._train_entered_section(to_berth, headcode, td_message)
+    
+    def _calculate_time_in_section(self, train_data: dict[str, Any]) -> int:
+        """Calculate how long train has been in section (seconds)."""
+        entered_at_str = train_data.get("entered_at")
+        if not entered_at_str:
+            return 0
+        
+        try:
+            entered_at = datetime.fromisoformat(entered_at_str)
+            now = dt_util.now()
+            delta = now - entered_at
+            return int(delta.total_seconds())
+        except Exception:
+            return 0
+    
+    def _calculate_berths_ahead(self, train_data: dict[str, Any]) -> list[str]:
+        """Calculate berths ahead of train in section.
+        
+        TODO: Implement this using SMART data to find berths ahead in the direction of travel.
+        For now, returns empty list as this is an enhancement for future releases.
+        """
+        current_berth = train_data.get("current_berth")
+        if not current_berth or not self.smart_manager or not self.smart_manager.is_available():
+            return []
+        
+        # Future implementation: Use SMART data to traverse berth connections
+        # and find berths ahead based on direction of travel
+        return []
+    
+    def _fire_track_alert(self, headcode: str, train_data: dict[str, Any], alert_reason: str) -> None:
+        """Fire a Home Assistant event for track section alert."""
+        event_data = {
+            "section_name": self._section_name,
+            "train_id": headcode,
+            "headcode": headcode,
+            "alert_type": train_data.get("service_type", "unknown"),
+            "alert_reason": alert_reason,
+            "current_berth": train_data.get("current_berth"),
+            "service_type": train_data.get("service_type"),
+            "origin": train_data.get("origin"),
+            "destination": train_data.get("destination"),
+            "operator": train_data.get("operator"),
+            "entered_at": train_data.get("entered_at"),
+        }
+        
+        self.hass.bus.async_fire("homeassistant_network_rail_uk_track_alert", event_data)

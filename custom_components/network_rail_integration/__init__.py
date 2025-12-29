@@ -9,10 +9,11 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 
-from .const import DOMAIN, CONF_USERNAME, CONF_PASSWORD
+from .const import DOMAIN, CONF_USERNAME, CONF_PASSWORD, CONF_ENABLE_VSTP
 from .hub import OpenRailDataHub
 from .debug_log import DebugLogger
 from .smart_data import SmartDataManager
+from .vstp_manager import VstpManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Load SMART data asynchronously (non-blocking)
     hass.async_create_task(smart_manager.load_data())
+
+    # Initialize VSTP manager if enabled
+    options = entry.options
+    if options.get(CONF_ENABLE_VSTP, False):
+        vstp_manager = VstpManager(hass, entry)
+        hass.data[DOMAIN][f"{entry.entry_id}_vstp_manager"] = vstp_manager
+        debug_logger.info("VSTP manager initialized")
 
     hub = OpenRailDataHub(hass, entry, debug_logger)
     hass.data[DOMAIN][entry.entry_id] = hub
@@ -89,6 +97,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Clean up SMART manager
     hass.data[DOMAIN].pop(f"{entry.entry_id}_smart_manager", None)
+    
+    # Clean up VSTP manager
+    hass.data[DOMAIN].pop(f"{entry.entry_id}_vstp_manager", None)
     
     # Unregister services if this is the last entry
     entries = hass.config_entries.async_entries(DOMAIN)

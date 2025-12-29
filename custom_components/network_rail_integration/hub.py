@@ -15,6 +15,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     CONF_ENABLE_TD,
+    CONF_ENABLE_VSTP,
     CONF_EVENT_TYPES,
     CONF_PASSWORD,
     CONF_STANOX_FILTER,
@@ -27,9 +28,11 @@ from .const import (
     DEFAULT_TD_EVENT_HISTORY_SIZE,
     DEFAULT_TD_TOPIC,
     DEFAULT_TOPIC,
+    DEFAULT_VSTP_TOPIC,
     DISPATCH_CONNECTED,
     DISPATCH_MOVEMENT,
     DISPATCH_TD,
+    DISPATCH_VSTP,
     NR_HOST,
     NR_PORT,
 )
@@ -107,6 +110,7 @@ class OpenRailDataHub:
                 CONF_ENABLE_TD: opt.get(CONF_ENABLE_TD, False),
                 CONF_TD_AREAS: opt.get(CONF_TD_AREAS, []),
                 CONF_TD_EVENT_HISTORY_SIZE: opt.get(CONF_TD_EVENT_HISTORY_SIZE, DEFAULT_TD_EVENT_HISTORY_SIZE),
+                CONF_ENABLE_VSTP: opt.get(CONF_ENABLE_VSTP, False),
             }
 
         reconnect_delay = 5
@@ -152,6 +156,25 @@ class OpenRailDataHub:
                         self._hub.debug_logger.info("Successfully subscribed to Train Describer feed")
                     else:
                         self._hub.debug_logger.debug("Train Describer feed is disabled")
+                    
+                    # Subscribe to VSTP if enabled
+                    if options.get(CONF_ENABLE_VSTP, False):
+                        vstp_dest = f"/topic/{DEFAULT_VSTP_TOPIC}"
+                        self._hub.debug_logger.info(
+                            "Subscribing to VSTP feed: %s", 
+                            vstp_dest
+                        )
+                        self._conn_ref.subscribe(
+                            destination=vstp_dest,
+                            id=3,
+                            ack="auto",
+                            headers={
+                                "activemq.subscriptionName": f"network_rail_integration-{DEFAULT_VSTP_TOPIC}",
+                            },
+                        )
+                        self._hub.debug_logger.info("Successfully subscribed to VSTP feed")
+                    else:
+                        self._hub.debug_logger.debug("VSTP feed is disabled")
                 except Exception as exc:
                     self._hub.debug_logger.error("Subscribe failed: %s", exc)
 
@@ -176,13 +199,19 @@ class OpenRailDataHub:
 
                 # Check if this is a Train Describer message (dict with *_MSG keys)
                 if isinstance(payload, dict):
-                    self._hub.debug_logger.debug("Received dict payload, checking if TD message")
+                    self._hub.debug_logger.debug("Received dict payload, checking message type")
+                    
+                    # Try to handle as VSTP message first (has JsonScheduleV1 key)
+                    if self._handle_vstp_message(payload):
+                        # Successfully handled as VSTP message
+                        return
+                    
                     # Try to handle as TD message
                     if self._handle_td_message(payload):
                         # Successfully handled as TD message
                         return
-                    # Not a valid TD message, continue to process as other message type
-                    self._hub.debug_logger.debug("Dict payload was not a TD message, continuing processing")
+                    # Not a valid TD or VSTP message, continue to process as other message type
+                    self._hub.debug_logger.debug("Dict payload was not a TD or VSTP message, continuing processing")
 
                 # Feed is a JSON list (may be empty) for train movements
                 if not isinstance(payload, list) or not payload:
@@ -261,6 +290,37 @@ class OpenRailDataHub:
 
                 self._publish_last_movement(last, kept, station_movements)
 
+            def _handle_vstp_message(self, message: dict[str, Any]) -> bool:
+                """Handle a VSTP schedule message.
+                
+                Returns:
+                    True if message was successfully handled as a VSTP message,
+                    False if the message is not a valid VSTP message format
+                """
+                # Check for JsonScheduleV1 key (VSTP message indicator)
+                if "JsonScheduleV1" not in message:
+                    return False
+                
+                self._hub.debug_logger.debug("Received VSTP schedule message")
+                
+                # Get VSTP manager from hass data
+                from .const import DOMAIN
+                vstp_manager = self._hass.data[DOMAIN].get(f"{self._hub.entry.entry_id}_vstp_manager")
+                
+                if vstp_manager:
+                    try:
+                        vstp_manager.process_vstp_message(message)
+                        self._hub.debug_logger.debug("VSTP message processed successfully")
+                        
+                        # Dispatch VSTP event for track section sensors
+                        self._publish_vstp_message(message)
+                    except Exception as exc:
+                        self._hub.debug_logger.error("Error processing VSTP message: %s", exc)
+                else:
+                    self._hub.debug_logger.warning("VSTP manager not found, message discarded")
+                
+                return True
+
             def _handle_td_message(self, message: dict[str, Any]) -> bool:
                 """Handle a Train Describer message.
                 
@@ -330,6 +390,11 @@ class OpenRailDataHub:
                 hass_loop = self._hass.loop
                 hass_loop.call_soon_threadsafe(self._update_td_message, parsed_message)
 
+            def _publish_vstp_message(self, message: dict[str, Any]) -> None:
+                """Publish a VSTP message to Home Assistant."""
+                hass_loop = self._hass.loop
+                hass_loop.call_soon_threadsafe(self._update_vstp_message, message)
+
             @callback
             def _update_connected(self, is_connected: bool) -> None:
                 self._hub.state.connected = is_connected
@@ -370,6 +435,12 @@ class OpenRailDataHub:
                 area_id = parsed_message.get("area_id")
                 if area_id:
                     async_dispatcher_send(self._hass, f"{DISPATCH_TD}_{area_id}", parsed_message)
+
+            @callback
+            def _update_vstp_message(self, message: dict[str, Any]) -> None:
+                """Update VSTP state and dispatch events."""
+                # Dispatch VSTP event for any listeners (e.g., track section sensors)
+                async_dispatcher_send(self._hass, DISPATCH_VSTP, message)
 
         conn = None
         while not self._stop_evt.is_set():

@@ -1,5 +1,5 @@
 {
-  "domain": "network_rail_integration",
+  "domain": "homeassistant_network_rail_uk",
   "name": "Network Rail Integration",
   "version": "1.11.2",
   "documentation": "https://github.com/tombanbury-cyber/network-rail-integration",

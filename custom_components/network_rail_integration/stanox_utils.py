@@ -15,7 +15,7 @@ _stanox_lookup: dict[str, str] | None = None
 
 
 def _read_csv_file(csv_path: Path) -> tuple[list[dict[str, str]], dict[str, str]]:
-    """Read CSV file synchronously (to be run in executor).
+    """Read CSV file synchronously (to be run in a separate thread).
     
     Args:
         csv_path: Path to the CSV file
@@ -233,7 +233,11 @@ def get_station_name(stanox: str | None) -> str | None:
     """Get the station name for a given STANOX code (sync version).
     
     This function returns the station name if data is already loaded,
-    otherwise returns None. Use async version or ensure data is preloaded.
+    otherwise returns None. This is a behavioral change from the original
+    version which would load data synchronously if needed.
+    
+    Use get_station_name_async() or ensure data is preloaded with
+    load_stanox_data() before using this function.
     
     Args:
         stanox: The STANOX code to look up

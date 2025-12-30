@@ -30,8 +30,16 @@ CONF_TRACK_SECTION_ALERT_SERVICES = "alert_services"
 # VSTP configuration
 CONF_ENABLE_VSTP = "enable_vstp"  # Enable VSTP feed
 
-# Default Train Describer event history size
+# Train Describer rate limiting configuration
+CONF_TD_UPDATE_INTERVAL = "td_update_interval"  # Minimum seconds between sensor updates
+CONF_TD_MAX_BATCH_SIZE = "td_max_batch_size"  # Maximum messages to batch before dispatch
+CONF_TD_MAX_MESSAGES_PER_SECOND = "td_max_messages_per_second"  # Rate limit threshold
+
+# Default Train Describer settings
 DEFAULT_TD_EVENT_HISTORY_SIZE = 10
+DEFAULT_TD_UPDATE_INTERVAL = 3  # Seconds between sensor updates
+DEFAULT_TD_MAX_BATCH_SIZE = 50  # Messages per batch
+DEFAULT_TD_MAX_MESSAGES_PER_SECOND = 20  # Messages per second limit
 
 DEFAULT_TOPIC = "TRAIN_MVT_ALL_TOC"
 DEFAULT_TD_TOPIC = "TD_ALL_SIG_AREA"

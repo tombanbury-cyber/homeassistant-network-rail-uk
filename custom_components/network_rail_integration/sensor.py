@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -22,8 +23,10 @@ from .const import (
     CONF_ENABLE_TD,
     CONF_TD_AREAS,
     CONF_TD_EVENT_HISTORY_SIZE,
+    CONF_TD_UPDATE_INTERVAL,
     CONF_DIAGRAM_CONFIGS,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
+    DEFAULT_TD_UPDATE_INTERVAL,
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name, get_formatted_station_name, load_stanox_data
@@ -124,6 +127,23 @@ async def async_setup_entry(
     hass.data[DOMAIN][f"{entry.entry_id}_debug_sensor"] = debug_sensor
     
     async_add_entities(entities, True)
+
+
+def _should_throttle_update(last_update_time: float, throttle_seconds: float) -> bool:
+    """Check if update should be throttled based on time since last update.
+    
+    Args:
+        last_update_time: Timestamp of last update (monotonic time)
+        throttle_seconds: Minimum seconds between updates
+        
+    Returns:
+        True if update should be throttled, False if update should proceed
+    """
+    if last_update_time == 0:
+        return False  # First update, don't throttle
+    
+    elapsed = time.monotonic() - last_update_time
+    return elapsed < throttle_seconds
 
 
 def _ms_to_local_iso(ms: Any) -> str | None:
@@ -339,6 +359,7 @@ class TrainDescriberStatusSensor(SensorEntity):
         self.entry = entry
         self.hub = hub
         self._unsub = None
+        self._last_update_time = 0.0  # Track last update for throttling
 
     async def async_added_to_hass(self) -> None:
         self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
@@ -350,6 +371,13 @@ class TrainDescriberStatusSensor(SensorEntity):
 
     @callback
     def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        # Apply throttling based on configuration
+        throttle_seconds = self.entry.options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+        
+        if _should_throttle_update(self._last_update_time, throttle_seconds):
+            return  # Skip this update due to throttling
+        
+        self._last_update_time = time.monotonic()
         self.async_write_ha_state()
 
     @property
@@ -499,6 +527,7 @@ class TrainDescriberAreaSensor(SensorEntity):
         self._attr_name = format_td_area_title(area_id)
         self._unsub = None
         self._last_message: dict[str, Any] | None = None
+        self._last_update_time = 0.0  # Track last update for throttling
 
     async def async_added_to_hass(self) -> None:
         # Subscribe to area-specific dispatcher signal
@@ -515,7 +544,16 @@ class TrainDescriberAreaSensor(SensorEntity):
 
     @callback
     def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        # Apply throttling based on configuration
+        throttle_seconds = self.entry.options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+        
+        if _should_throttle_update(self._last_update_time, throttle_seconds):
+            # Still update the internal message but don't trigger HA state update
+            self._last_message = parsed_message
+            return
+        
         self._last_message = parsed_message
+        self._last_update_time = time.monotonic()
         self.async_write_ha_state()
 
     @property
@@ -690,6 +728,7 @@ class TrainDescriberRawJsonSensor(SensorEntity):
         self.entry = entry
         self.hub = hub
         self._unsub = None
+        self._last_update_time = 0.0  # Track last update for throttling
 
     async def async_added_to_hass(self) -> None:
         self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
@@ -701,6 +740,13 @@ class TrainDescriberRawJsonSensor(SensorEntity):
 
     @callback
     def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        # Apply throttling based on configuration
+        throttle_seconds = self.entry.options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+        
+        if _should_throttle_update(self._last_update_time, throttle_seconds):
+            return  # Skip this update due to throttling
+        
+        self._last_update_time = time.monotonic()
         self.async_write_ha_state()
 
     @property
@@ -774,6 +820,7 @@ class NetworkDiagramSensor(SensorEntity):
         else:
             self._attr_name = f"Network Diagram {center_stanox}"
         self._unsub = None
+        self._last_update_time = 0.0  # Track last update for throttling
 
     async def async_added_to_hass(self) -> None:
         # Subscribe to TD messages for berth updates
@@ -786,7 +833,14 @@ class NetworkDiagramSensor(SensorEntity):
 
     @callback
     def _handle_update(self, parsed_message: dict[str, Any]) -> None:
-        """Handle TD message update."""
+        """Handle TD message update with throttling."""
+        # Apply throttling based on configuration
+        throttle_seconds = self.entry.options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+        
+        if _should_throttle_update(self._last_update_time, throttle_seconds):
+            return  # Skip this update due to throttling
+        
+        self._last_update_time = time.monotonic()
         self.async_write_ha_state()
 
     @property

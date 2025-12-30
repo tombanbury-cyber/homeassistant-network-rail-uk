@@ -18,6 +18,9 @@ from .const import (
     CONF_STATIONS,
     CONF_TD_AREAS,
     CONF_TD_EVENT_HISTORY_SIZE,
+    CONF_TD_MAX_BATCH_SIZE,
+    CONF_TD_MAX_MESSAGES_PER_SECOND,
+    CONF_TD_UPDATE_INTERVAL,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
@@ -33,6 +36,9 @@ from .const import (
     CONF_TRACK_SECTION_ALERT_SERVICES,
     DEFAULT_TOPIC,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
+    DEFAULT_TD_MAX_BATCH_SIZE,
+    DEFAULT_TD_MAX_MESSAGES_PER_SECOND,
+    DEFAULT_TD_UPDATE_INTERVAL,
     DOMAIN,
 )
 from .stanox_utils import search_stanox, get_formatted_station_name_async
@@ -429,6 +435,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             # Store event history size
             opts[CONF_TD_EVENT_HISTORY_SIZE] = user_input.get(CONF_TD_EVENT_HISTORY_SIZE, DEFAULT_TD_EVENT_HISTORY_SIZE)
             
+            # Store rate limiting settings
+            opts[CONF_TD_UPDATE_INTERVAL] = user_input.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+            opts[CONF_TD_MAX_BATCH_SIZE] = user_input.get(CONF_TD_MAX_BATCH_SIZE, DEFAULT_TD_MAX_BATCH_SIZE)
+            opts[CONF_TD_MAX_MESSAGES_PER_SECOND] = user_input.get(CONF_TD_MAX_MESSAGES_PER_SECOND, DEFAULT_TD_MAX_MESSAGES_PER_SECOND)
+            
             return self.async_create_entry(title="", data=opts)
         
         opts = self.config_entry.options
@@ -457,13 +468,53 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                     ),
                 ),
+                vol.Optional(
+                    CONF_TD_UPDATE_INTERVAL,
+                    default=opts.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=10,
+                        step=0.5,
+                        unit_of_measurement="seconds",
+                        mode=selector.NumberSelectorMode.BOX,
+                    ),
+                ),
+                vol.Optional(
+                    CONF_TD_MAX_BATCH_SIZE,
+                    default=opts.get(CONF_TD_MAX_BATCH_SIZE, DEFAULT_TD_MAX_BATCH_SIZE)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=10,
+                        max=200,
+                        step=10,
+                        mode=selector.NumberSelectorMode.BOX,
+                    ),
+                ),
+                vol.Optional(
+                    CONF_TD_MAX_MESSAGES_PER_SECOND,
+                    default=opts.get(CONF_TD_MAX_MESSAGES_PER_SECOND, DEFAULT_TD_MAX_MESSAGES_PER_SECOND)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5,
+                        max=100,
+                        step=5,
+                        mode=selector.NumberSelectorMode.BOX,
+                    ),
+                ),
             }
         )
         return self.async_show_form(
             step_id="configure_train_describer",
             data_schema=schema,
             description_placeholders={
-                "description": "Enable Train Describer feed to track train positions through signalling berths. This is useful for creating network diagrams.\n\nLeave TD areas empty to receive all messages, or specify specific area IDs (e.g., 'SK', 'G1', 'RW') to filter.\n\nEvent history size controls how many recent TD events are kept for each area (default: 10, range: 1-50)."
+                "description": "Enable Train Describer feed to track train positions through signalling berths.\n\n"
+                              "**TD Areas**: Comma-separated list (e.g., 'SK, G1, RW'). Leave empty to track all areas.\n\n"
+                              "**Event History Size**: Number of recent TD events kept per area (1-50, default: 10).\n\n"
+                              "**Performance Settings** (prevent GUI lockup with high-volume feeds):\n"
+                              "• **Update Interval**: Minimum seconds between sensor updates (1-10s, default: 3s). Higher = less CPU usage.\n"
+                              "• **Max Batch Size**: Messages collected before dispatch (10-200, default: 50). Higher = more efficient batching.\n"
+                              "• **Max Messages/Second**: Rate limit threshold (5-100, default: 20). Messages beyond this are dropped with warning."
             }
         )
     

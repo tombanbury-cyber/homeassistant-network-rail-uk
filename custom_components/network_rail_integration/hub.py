@@ -22,10 +22,16 @@ from .const import (
     CONF_STATIONS,
     CONF_TD_AREAS,
     CONF_TD_EVENT_HISTORY_SIZE,
+    CONF_TD_MAX_BATCH_SIZE,
+    CONF_TD_MAX_MESSAGES_PER_SECOND,
+    CONF_TD_UPDATE_INTERVAL,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
+    DEFAULT_TD_MAX_BATCH_SIZE,
+    DEFAULT_TD_MAX_MESSAGES_PER_SECOND,
+    DEFAULT_TD_UPDATE_INTERVAL,
     DEFAULT_TD_TOPIC,
     DEFAULT_TOPIC,
     DEFAULT_VSTP_TOPIC,
@@ -52,6 +58,11 @@ class HubState:
     # Train Describer state
     last_td_message: dict[str, Any] | None = None
     td_message_count: int = 0
+    # TD rate limiting state
+    td_batch: list[dict[str, Any]] = field(default_factory=list)
+    td_last_dispatch_time: float = 0.0
+    td_message_rate_window: list[float] = field(default_factory=list)
+    td_dropped_count: int = 0
     
     def __post_init__(self):
         """Initialize berth state with default history size."""
@@ -110,6 +121,9 @@ class OpenRailDataHub:
                 CONF_ENABLE_TD: opt.get(CONF_ENABLE_TD, False),
                 CONF_TD_AREAS: opt.get(CONF_TD_AREAS, []),
                 CONF_TD_EVENT_HISTORY_SIZE: opt.get(CONF_TD_EVENT_HISTORY_SIZE, DEFAULT_TD_EVENT_HISTORY_SIZE),
+                CONF_TD_UPDATE_INTERVAL: opt.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL),
+                CONF_TD_MAX_BATCH_SIZE: opt.get(CONF_TD_MAX_BATCH_SIZE, DEFAULT_TD_MAX_BATCH_SIZE),
+                CONF_TD_MAX_MESSAGES_PER_SECOND: opt.get(CONF_TD_MAX_MESSAGES_PER_SECOND, DEFAULT_TD_MAX_MESSAGES_PER_SECOND),
                 CONF_ENABLE_VSTP: opt.get(CONF_ENABLE_VSTP, False),
             }
 
@@ -322,15 +336,33 @@ class OpenRailDataHub:
                 return True
 
             def _handle_td_message(self, message: dict[str, Any]) -> bool:
-                """Handle a Train Describer message.
+                """Handle a Train Describer message with rate limiting and batching.
                 
                 Returns:
                     True if message was successfully handled as a TD message (including 
                     filtered messages), False if the message is not a valid TD message format
                 """
-                # Log that we received a potential TD message
-                self._hub.debug_logger.debug("Received potential TD message: %s", list(message.keys()))
+                options = _read_options()
                 
+                # Early filtering: Check area filter BEFORE parsing to save CPU
+                td_areas = set(options.get(CONF_TD_AREAS, []))
+                if td_areas:
+                    # Quick check: does message contain any of our area IDs?
+                    # TD messages have keys like "CA_MSG", "CB_MSG", etc.
+                    has_area_match = False
+                    for key, content in message.items():
+                        if key.endswith("_MSG") and isinstance(content, dict):
+                            area_id = content.get("area_id", "")
+                            if area_id in td_areas:
+                                has_area_match = True
+                                break
+                    
+                    if not has_area_match:
+                        # Message is for an area we're not tracking, skip parsing
+                        self._hub.debug_logger.debug("TD message filtered early: area not in filter")
+                        return True  # Still counts as handled TD message
+                
+                # Parse the message
                 parsed = parse_td_message(message)
                 if not parsed:
                     self._hub.debug_logger.debug("Message was not a valid TD message")
@@ -342,35 +374,65 @@ class OpenRailDataHub:
                     parsed.get("area_id")
                 )
                 
-                options = _read_options()
-                
-                # Apply filters
-                td_areas = set(options.get(CONF_TD_AREAS, []))
+                # Apply remaining filters (in case early filter missed something)
                 area_filter = td_areas if td_areas else None
-                
-                self._hub.debug_logger.debug(
-                    "TD filters: areas=%s (filter=%s)", 
-                    td_areas if td_areas else "all", 
-                    area_filter
-                )
-                
                 if not apply_td_filters(parsed, area_filter=area_filter):
                     self._hub.debug_logger.debug(
                         "TD message filtered out: area=%s not in %s",
                         parsed.get("area_id"),
                         td_areas
                     )
-                    # Mark as handled since it was a valid TD message structure, even though filtered by area criteria
                     return True
                 
-                self._hub.debug_logger.info(
-                    "Publishing TD message: type=%s, area=%s",
-                    parsed.get("msg_type"),
-                    parsed.get("area_id")
+                # Rate limiting: check message rate
+                max_msg_per_sec = options.get(CONF_TD_MAX_MESSAGES_PER_SECOND, DEFAULT_TD_MAX_MESSAGES_PER_SECOND)
+                now = time.monotonic()
+                
+                # Clean old timestamps from rate window (keep last 1 second)
+                self._hub.state.td_message_rate_window = [
+                    t for t in self._hub.state.td_message_rate_window if now - t < 1.0
+                ]
+                
+                # Check if we're over the rate limit
+                if len(self._hub.state.td_message_rate_window) >= max_msg_per_sec:
+                    self._hub.state.td_dropped_count += 1
+                    if self._hub.state.td_dropped_count % 100 == 1:  # Log every 100 drops
+                        self._hub.debug_logger.warning(
+                            "TD rate limit exceeded (%d msg/s): dropped %d messages",
+                            max_msg_per_sec,
+                            self._hub.state.td_dropped_count
+                        )
+                    return True
+                
+                # Add to rate window
+                self._hub.state.td_message_rate_window.append(now)
+                
+                # Add to batch
+                self._hub.state.td_batch.append(parsed)
+                
+                # Check if batch is full or if enough time has passed
+                max_batch_size = options.get(CONF_TD_MAX_BATCH_SIZE, DEFAULT_TD_MAX_BATCH_SIZE)
+                update_interval = options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
+                time_since_last = now - self._hub.state.td_last_dispatch_time
+                
+                should_dispatch = (
+                    len(self._hub.state.td_batch) >= max_batch_size or
+                    time_since_last >= update_interval
                 )
                 
-                # Publish to HA
-                self._publish_td_message(parsed)
+                if should_dispatch and self._hub.state.td_batch:
+                    self._hub.debug_logger.debug(
+                        "Dispatching TD batch: %d messages (batch_full=%s, time_elapsed=%.1fs)",
+                        len(self._hub.state.td_batch),
+                        len(self._hub.state.td_batch) >= max_batch_size,
+                        time_since_last
+                    )
+                    # Dispatch the batch
+                    batch_to_send = self._hub.state.td_batch.copy()
+                    self._hub.state.td_batch.clear()
+                    self._hub.state.td_last_dispatch_time = now
+                    self._publish_td_batch(batch_to_send)
+                
                 return True
 
             def _mark_seen(self, batch_count: int) -> None:
@@ -386,9 +448,14 @@ class OpenRailDataHub:
                 hass_loop.call_soon_threadsafe(self._update_movement, movement, kept, station_movements)
 
             def _publish_td_message(self, parsed_message: dict[str, Any]) -> None:
-                """Publish a Train Describer message to Home Assistant."""
+                """Publish a single Train Describer message to Home Assistant (legacy)."""
                 hass_loop = self._hass.loop
                 hass_loop.call_soon_threadsafe(self._update_td_message, parsed_message)
+            
+            def _publish_td_batch(self, batch: list[dict[str, Any]]) -> None:
+                """Publish a batch of Train Describer messages to Home Assistant."""
+                hass_loop = self._hass.loop
+                hass_loop.call_soon_threadsafe(self._update_td_batch, batch)
 
             def _publish_vstp_message(self, message: dict[str, Any]) -> None:
                 """Publish a VSTP message to Home Assistant."""
@@ -419,22 +486,42 @@ class OpenRailDataHub:
 
             @callback
             def _update_td_message(self, parsed_message: dict[str, Any]) -> None:
-                """Update Train Describer state and dispatch events."""
-                self._hub.state.last_td_message = parsed_message
-                self._hub.state.td_message_count += 1
+                """Update Train Describer state and dispatch events (legacy single message)."""
+                self._update_td_batch([parsed_message])
+            
+            @callback
+            def _update_td_batch(self, batch: list[dict[str, Any]]) -> None:
+                """Update Train Describer state and dispatch events for a batch of messages."""
+                if not batch:
+                    return
                 
-                # Update berth state
-                msg_type = parsed_message.get("msg_type")
-                if msg_type in ("CA", "CB", "CC"):
-                    self._hub.state.berth_state.update(parsed_message)
+                # Process all messages in batch
+                for parsed_message in batch:
+                    self._hub.state.last_td_message = parsed_message
+                    self._hub.state.td_message_count += 1
+                    
+                    # Update berth state
+                    msg_type = parsed_message.get("msg_type")
+                    if msg_type in ("CA", "CB", "CC"):
+                        self._hub.state.berth_state.update(parsed_message)
                 
-                # Dispatch TD event
-                async_dispatcher_send(self._hass, DISPATCH_TD, parsed_message)
+                # Only dispatch once per batch (use last message as representative)
+                last_message = batch[-1]
                 
-                # Dispatch area-specific event
-                area_id = parsed_message.get("area_id")
-                if area_id:
-                    async_dispatcher_send(self._hass, f"{DISPATCH_TD}_{area_id}", parsed_message)
+                # Dispatch TD event (throttled - only once per batch)
+                async_dispatcher_send(self._hass, DISPATCH_TD, last_message)
+                
+                # Dispatch area-specific events (collect unique areas, dispatch once per area)
+                area_messages = {}
+                for parsed_message in batch:
+                    area_id = parsed_message.get("area_id")
+                    if area_id:
+                        # Keep the latest message for each area
+                        area_messages[area_id] = parsed_message
+                
+                # Dispatch once per unique area
+                for area_id, message in area_messages.items():
+                    async_dispatcher_send(self._hass, f"{DISPATCH_TD}_{area_id}", message)
 
             @callback
             def _update_vstp_message(self, message: dict[str, Any]) -> None:

@@ -172,6 +172,11 @@ def apply_td_filters(
 class BerthState:
     """Tracks the state of berths in a TD area."""
     
+    # Maximum number of berths to track (memory management)
+    MAX_BERTHS = 1000
+    # Maximum number of platform states to track
+    MAX_PLATFORMS = 500
+    
     def __init__(self, event_history_size: int = 10) -> None:
         """Initialize berth state tracker.
         
@@ -250,6 +255,50 @@ class BerthState:
                 "last_updated": timestamp,
                 "status": "active",
             }
+    
+    def _cleanup_old_berths(self) -> None:
+        """Clean up old berth entries if we exceed the maximum count.
+        
+        Removes oldest berths (by timestamp) to stay under MAX_BERTHS limit.
+        """
+        if len(self._berths) > self.MAX_BERTHS:
+            # Sort by timestamp (oldest first)
+            sorted_berths = sorted(
+                self._berths.items(),
+                key=lambda x: x[1].get("timestamp", 0)
+            )
+            # Remove oldest entries to get back under limit
+            num_to_remove = len(self._berths) - self.MAX_BERTHS
+            for berth_key, _ in sorted_berths[:num_to_remove]:
+                self._berths.pop(berth_key, None)
+            
+            _LOGGER.debug(
+                "Cleaned up %d old berths (limit: %d)",
+                num_to_remove,
+                self.MAX_BERTHS
+            )
+    
+    def _cleanup_old_platforms(self) -> None:
+        """Clean up old platform state entries if we exceed the maximum count.
+        
+        Removes oldest platform states (by timestamp) to stay under MAX_PLATFORMS limit.
+        """
+        if len(self._platform_state) > self.MAX_PLATFORMS:
+            # Sort by timestamp (oldest first)
+            sorted_platforms = sorted(
+                self._platform_state.items(),
+                key=lambda x: x[1].get("last_updated", 0)
+            )
+            # Remove oldest entries to get back under limit
+            num_to_remove = len(self._platform_state) - self.MAX_PLATFORMS
+            for platform_id, _ in sorted_platforms[:num_to_remove]:
+                self._platform_state.pop(platform_id, None)
+            
+            _LOGGER.debug(
+                "Cleaned up %d old platform states (limit: %d)",
+                num_to_remove,
+                self.MAX_PLATFORMS
+            )
     
     def update(self, parsed_message: dict[str, Any]) -> None:
         """Update berth state based on a TD message.
@@ -356,6 +405,13 @@ class BerthState:
         # Add event to history (only for berth operations, not heartbeats)
         if msg_type in (TD_MSG_CA, TD_MSG_CB, TD_MSG_CC):
             self._event_history.append(event_record)
+        
+        # Periodic cleanup to prevent unbounded memory growth
+        # Check every 100 updates (amortized cost)
+        if len(self._berths) % 100 == 0:
+            self._cleanup_old_berths()
+        if len(self._platform_state) % 100 == 0:
+            self._cleanup_old_platforms()
     
     def get_berth(self, area_id: str, berth_id: str) -> dict[str, str] | None:
         """Get the current state of a berth.

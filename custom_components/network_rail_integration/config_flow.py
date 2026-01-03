@@ -473,8 +473,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     default=opts.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=1,
-                        max=10,
+                        min=10,
+                        max=300,
                         step=0.5,
                         unit_of_measurement="seconds",
                         mode=selector.NumberSelectorMode.BOX,
@@ -731,11 +731,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     ): bool,
                     vol.Optional(
                         "diagram_range",
-                        default=self._diagram_to_edit.get("range", 1)
+                        default=self._diagram_to_edit.get("range", 4)
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,
-                            max=5,
+                            max=10,
                             mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),

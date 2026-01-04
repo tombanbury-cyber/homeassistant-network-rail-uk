@@ -36,8 +36,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     smart_manager = SmartDataManager(hass, username, password)
     hass.data[DOMAIN][f"{entry.entry_id}_smart_manager"] = smart_manager
     
+    _LOGGER.info("SMART manager initialized, starting data load...")
+    
     # Load SMART data asynchronously (non-blocking)
-    hass.async_create_task(smart_manager.load_data())
+    async def load_smart_data_with_logging():
+        """Wrapper to add logging around SMART data loading."""
+        try:
+            _LOGGER.info("Starting SMART data load task...")
+            result = await smart_manager.load_data()
+            if result:
+                _LOGGER.info("SMART data loaded successfully: %d records", len(smart_manager._data))
+            else:
+                _LOGGER.error("SMART data load returned False")
+        except Exception as exc:
+            _LOGGER.error("Exception during SMART data load: %s", exc, exc_info=True)
+    
+    hass.async_create_task(load_smart_data_with_logging())
 
     # Initialize VSTP manager if enabled
     options = entry.options

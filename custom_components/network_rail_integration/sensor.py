@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import time
 from typing import Any
 
@@ -34,6 +35,8 @@ from .toc_codes import get_toc_name, get_direction_description, get_line_descrip
 from .stanox_utils import get_station_name, get_formatted_station_name, load_stanox_data
 from .td_area_codes import format_td_area_title, get_td_area_name
 from .debug_log import DebugLogSensor
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -106,13 +109,30 @@ async def async_setup_entry(
     # Add Network Diagram sensors for each configured diagram
     diagram_configs = options.get(CONF_DIAGRAM_CONFIGS, [])
     smart_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_smart_manager")
+    
+    _LOGGER.info("Setting up Network Diagram sensors: %d diagrams configured", len(diagram_configs))
+    
     if smart_manager:
+        _LOGGER.info("Smart manager found: is_available=%s", smart_manager.is_available())
         for diagram_cfg in diagram_configs:
-            if diagram_cfg.get("enabled", False):
-                diagram_stanox = diagram_cfg.get("stanox")
-                diagram_range = diagram_cfg.get("range", 1)
-                if diagram_stanox:
-                    entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
+            enabled = diagram_cfg.get("enabled", False)
+            diagram_stanox = diagram_cfg.get("stanox")
+            diagram_range = diagram_cfg.get("range", 1)
+            
+            _LOGGER.info(
+                "Processing diagram config: stanox=%s, enabled=%s, range=%d",
+                diagram_stanox,
+                enabled,
+                diagram_range
+            )
+            
+            if enabled and diagram_stanox:
+                _LOGGER.info("Creating NetworkDiagramSensor for stanox=%s", diagram_stanox)
+                entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
+            else:
+                _LOGGER.warning("Skipping diagram: stanox=%s, enabled=%s", diagram_stanox, enabled)
+    else:
+        _LOGGER.warning("Smart manager not found, skipping Network Diagram sensors")
     
     # Add Track Section sensors for each configured section
     from .const import CONF_TRACK_SECTIONS
@@ -827,10 +847,19 @@ class NetworkDiagramSensor(SensorEntity):
             self._attr_name = f"Network Diagram {center_stanox}"
         self._unsub = None
         self._last_update_time = 0.0  # Track last update for throttling
+        
+        _LOGGER.info(
+            "NetworkDiagramSensor created: stanox=%s, name=%s, range=%d",
+            center_stanox,
+            self._attr_name,
+            diagram_range
+        )
 
     async def async_added_to_hass(self) -> None:
+        _LOGGER.info("NetworkDiagramSensor async_added_to_hass: stanox=%s", self._center_stanox)
         # Subscribe to TD messages for berth updates
         self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
+        _LOGGER.info("NetworkDiagramSensor subscribed to TD updates: stanox=%s", self._center_stanox)
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub:
@@ -840,6 +869,8 @@ class NetworkDiagramSensor(SensorEntity):
     @callback
     def _handle_update(self, parsed_message: dict[str, Any]) -> None:
         """Handle TD message update with throttling."""
+        _LOGGER.debug("NetworkDiagramSensor _handle_update called: stanox=%s", self._center_stanox)
+        
         # Apply throttling based on configuration
         throttle_seconds = self.entry.options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
         
@@ -847,6 +878,7 @@ class NetworkDiagramSensor(SensorEntity):
             return  # Skip this update due to throttling
         
         self._last_update_time = time.monotonic()
+        _LOGGER.debug("NetworkDiagramSensor triggering state update: stanox=%s", self._center_stanox)
         self.async_write_ha_state()
 
     @property
@@ -866,12 +898,22 @@ class NetworkDiagramSensor(SensorEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.smart_manager.is_available() and self.hub.is_connected
+        smart_available = self.smart_manager.is_available()
+        hub_connected = self.hub.is_connected
+        
+        _LOGGER.debug(
+            "NetworkDiagramSensor availability check: smart_manager.is_available()=%s, hub.is_connected=%s",
+            smart_available,
+            hub_connected
+        )
+        
+        return smart_available and hub_connected
 
     @property
     def native_value(self) -> int:
         """Return the count of currently occupied berths in the diagram area."""
         if not self.smart_manager.is_available():
+            _LOGGER.debug("NetworkDiagramSensor native_value: SMART manager not available")
             return 0
         
         # Get all berths in the diagram area
@@ -880,6 +922,12 @@ class NetworkDiagramSensor(SensorEntity):
         
         # Get berths for center station and adjacent stations
         all_berths = self._get_all_diagram_berths(graph)
+        
+        _LOGGER.debug(
+            "NetworkDiagramSensor native_value: Found %d berths in diagram area for STANOX %s",
+            len(all_berths),
+            self._center_stanox
+        )
         
         # Count occupied berths
         occupied_count = 0
@@ -891,6 +939,7 @@ class NetworkDiagramSensor(SensorEntity):
                 if berth_data:
                     occupied_count += 1
         
+        _LOGGER.debug("NetworkDiagramSensor native_value: %d occupied berths", occupied_count)
         return occupied_count
 
     def _get_all_diagram_berths(self, graph: dict[str, Any]) -> set[str]:

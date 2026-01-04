@@ -367,6 +367,19 @@ class SmartDataManager:
                 _LOGGER.warning("SMART cache file is missing content")
                 return False
             
+            # Check if content is double-encoded (JSON string within JSON)
+            # If content is a string that looks like JSON, try to parse it again
+            if isinstance(content, str):
+                try:
+                    # Try to parse it as JSON - if it works, we had double-encoding
+                    parsed_content = json.loads(content)
+                    if isinstance(parsed_content, (dict, list)):
+                        _LOGGER.debug("Content was double-encoded JSON string, decoded successfully")
+                        content = json.dumps(parsed_content)  # Convert back to string for _parse_smart_data
+                except json.JSONDecodeError:
+                    # Not double-encoded, content is already the right format
+                    pass
+            
             # Parse the cached content
             if not self._parse_smart_data(content):
                 _LOGGER.warning("Failed to parse cached SMART data")

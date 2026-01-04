@@ -864,6 +864,11 @@ class NetworkDiagramSensor(SensorEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self. smart_manager.is_available() and self.hub.is_connected
+
+    @property
     def native_value(self) -> int:
         """Return the count of currently occupied berths in the diagram area."""
         if not self.smart_manager.is_available():

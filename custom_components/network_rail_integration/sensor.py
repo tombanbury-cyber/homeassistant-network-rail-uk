@@ -842,7 +842,7 @@ class NetworkDiagramSensor(SensorEntity):
         self.hub = hub
         self.smart_manager = smart_manager
         self._center_stanox = center_stanox
-        self._diagram_range = diagram_range
+        self._diagram_range = int(diagram_range)  # <-- Convert to int here
         # Use formatted station name if available, otherwise use STANOX code
         formatted_name = get_formatted_station_name(center_stanox)
         if formatted_name:
@@ -856,7 +856,7 @@ class NetworkDiagramSensor(SensorEntity):
             "NetworkDiagramSensor created: stanox=%s, name=%s, range=%d",
             center_stanox,
             self._attr_name,
-            diagram_range
+            self.diagram_range
         )
 
     async def async_added_to_hass(self) -> None:

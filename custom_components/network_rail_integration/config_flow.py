@@ -190,14 +190,6 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 stanox = section.get("center_stanox", "")
                 description += f"\n  • {name} (center: {stanox})"
         
-        # Perform migration if needed
-        opts = self._migrate_diagram_config(opts)
-        if opts != self.config_entry.options:
-            # Options were migrated, update entry
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, options=opts
-            )
-        
         # Show network diagram status
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
         if diagram_configs:

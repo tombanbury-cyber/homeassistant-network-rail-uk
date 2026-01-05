@@ -856,7 +856,7 @@ class NetworkDiagramSensor(SensorEntity):
             "NetworkDiagramSensor created: stanox=%s, name=%s, range=%d",
             center_stanox,
             self._attr_name,
-            self.diagram_range
+            self._diagram_range
         )
 
     async def async_added_to_hass(self) -> None:

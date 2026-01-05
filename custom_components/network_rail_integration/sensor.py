@@ -1023,7 +1023,7 @@ class NetworkDiagramSensor(SensorEntity):
         
         # Only include stations up to diagram_range
         for conn in connections[: self._diagram_range]:
-            stanox = conn. get("stanox")
+            stanox = conn.get("stanox")
             if not stanox:
                 continue
             
@@ -1034,7 +1034,7 @@ class NetworkDiagramSensor(SensorEntity):
             berths_list = []
             for berth_info in station_berths: 
                 berth_id = berth_info.get("from_berth") or berth_info.get("to_berth")
-                td_area = berth_info. get("td_area", "")
+                td_area = berth_info.get("td_area", "")
                 
                 if not berth_id or not td_area:
                     continue

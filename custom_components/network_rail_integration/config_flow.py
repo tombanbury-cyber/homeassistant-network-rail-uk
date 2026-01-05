@@ -181,7 +181,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         opts = self._migrate_diagram_config(opts)
         if opts != self.config_entry.options:
             # Options were migrated, update entry
-            self.hass.config_entries.(
+            self.hass.config_entries.async_update_entry(
                 self.config_entry, options=opts
             )
         

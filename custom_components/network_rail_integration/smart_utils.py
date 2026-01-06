@@ -67,48 +67,72 @@ def get_berths_for_stanox(
     return stanox_to_berths.get(stanox, [])
 
 
+def find_adjacent_stations_multihop(
+    graph: dict[str, Any],
+    center_berth_keys: set[str],
+    center_stanox: str,
+    max_hops: int = 3
+) -> dict[str, int]:
+    """Find stations within max_hops berth steps from center station. 
+    
+    Returns: 
+        Dictionary mapping stanox -> hop_distance
+    """
+    from collections import deque
+    
+    berth_to_connections = graph. get("berth_to_connections", {})
+    berth_to_stanox = graph.get("berth_to_stanox", {})
+    
+    adjacent_stations = {}  # stanox -> distance
+    visited_berths = set()
+    queue = deque()
+    
+    # Initialize with center berths at distance 0
+    for berth_key in center_berth_keys:
+        queue.append((berth_key, 0))
+        visited_berths.add(berth_key)
+    
+    while queue:
+        current_berth, distance = queue.popleft()
+        
+        # Stop if we've gone too far
+        if distance >= max_hops:
+            continue
+        
+        connections = berth_to_connections. get(current_berth, {})
+        
+        # Check both "from" and "to" connections
+        for direction in ["from", "to"]: 
+            for conn in connections.get(direction, []):
+                conn_td_area = conn.get("td_area", "")
+                conn_berth = conn.get("berth", "")
+                
+                if not conn_td_area or not conn_berth:
+                    continue
+                
+                conn_key = f"{conn_td_area}:{conn_berth}"
+                conn_stanox = berth_to_stanox.get(conn_key)
+                
+                # Found a station (not the center)
+                if conn_stanox and conn_stanox != center_stanox:
+                    # Record this station if not seen or closer
+                    if conn_stanox not in adjacent_stations or distance + 1 < adjacent_stations[conn_stanox]:
+                        adjacent_stations[conn_stanox] = distance + 1
+                
+                # Continue exploring from this berth
+                if conn_key not in visited_berths:
+                    visited_berths.add(conn_key)
+                    queue.append((conn_key, distance + 1))
+    
+    return adjacent_stations
+
+
+
 def get_station_berths_with_connections(
     graph: dict[str, Any], 
-    stanox: str
+    stanox:  str
 ) -> dict[str, Any]:
-    """Get comprehensive station berth data including adjacent stations.
-    
-    Args:
-        graph: SMART graph structure from SmartDataManager
-        stanox: STANOX code for the center station
-        
-    Returns:
-        Dictionary with station info and connections:
-        {
-            "stanox": "32000",
-            "stanme": "MANCR PIC",
-            "berths": [
-                {
-                    "berth_id": "M123",
-                    "td_area": "SK",
-                    "platform": "1",
-                    "event": "A"
-                },
-                ...
-            ],
-            "up_connections": [
-                {
-                    "stanox": "32009",
-                    "stanme": "ARDWICKJN",
-                    "berths": [...]
-                },
-                ...
-            ],
-            "down_connections": [
-                {
-                    "stanox": "32050",
-                    "stanme": "ASHBURYS",
-                    "berths": [...]
-                },
-                ...
-            ]
-        }
-    """
+    """Get comprehensive station berth data including adjacent stations."""
     berth_to_connections = graph.get("berth_to_connections", {})
     berth_to_stanox = graph.get("berth_to_stanox", {})
     stanox_to_berths = graph.get("stanox_to_berths", {})
@@ -149,101 +173,133 @@ def get_station_berths_with_connections(
                 berths.append({
                     "berth_id": to_berth,
                     "td_area": td_area,
-                    "platform": record.get("platform", ""),
+                    "platform":  record.get("platform", ""),
                     "event": record.get("event", ""),
                 })
     
-    # Find adjacent stations by following berth connections
-    adjacent_stanox = set()
+    # Calculate average berth number for center station (for direction heuristic)
+    center_berth_nums = []
+    for rec in berth_records: 
+        for berth_field in ["from_berth", "to_berth"]:
+            berth = rec.get(berth_field, "")
+            if berth and berth.isdigit():
+                center_berth_nums.append(int(berth))
+    avg_center = sum(center_berth_nums) / len(center_berth_nums) if center_berth_nums else 0
     
-    for berth_key in berth_keys:
-        connections = berth_to_connections.get(berth_key, {})
-        
-        # Check "from" connections (trains coming from)
-        for conn in connections.get("from", []):
-            conn_td_area = conn.get("td_area", "")
-            conn_berth = conn.get("berth", "")
-            if conn_td_area and conn_berth:
-                conn_key = f"{conn_td_area}:{conn_berth}"
-                conn_stanox = berth_to_stanox.get(conn_key)
-                if conn_stanox and conn_stanox != stanox:
-                    adjacent_stanox.add(conn_stanox)
-        
-        # Check "to" connections (trains going to)
-        for conn in connections.get("to", []):
-            conn_td_area = conn.get("td_area", "")
-            conn_berth = conn.get("berth", "")
-            if conn_td_area and conn_berth:
-                conn_key = f"{conn_td_area}:{conn_berth}"
-                conn_stanox = berth_to_stanox.get(conn_key)
-                if conn_stanox and conn_stanox != stanox:
-                    adjacent_stanox.add(conn_stanox)
+    # Use multi-hop discovery to find adjacent stations (within 3 berth hops)
+    adjacent_stations = find_adjacent_stations_multihop(graph, berth_keys, stanox, max_hops=3)
     
-    # Build connection lists
-    # Note: Without direction information in SMART data, we can't definitively
-    # determine "up" vs "down". We'll just list all adjacent stations.
-    # In a real implementation, this would require additional logic or metadata.
-    adjacent_stations = []
-    for adj_stanox in adjacent_stanox:
+    # Classify stations as UP or DOWN based on berth numbers and line evidence
+    up_adjacent_stanox = set()
+    down_adjacent_stanox = set()
+    
+    for adj_stanox, hop_distance in adjacent_stations.items():
         adj_berth_records = stanox_to_berths.get(adj_stanox, [])
-        adj_stanme = adj_berth_records[0].get("stanme", "") if adj_berth_records else ""
+        if not adj_berth_records: 
+            continue
         
-        adj_berths = []
-        adj_berth_keys = set()
-        for record in adj_berth_records:
-            td_area = record.get("td_area", "")
-            from_berth = record.get("from_berth", "")
-            to_berth = record.get("to_berth", "")
-            
-            if from_berth and td_area:
-                berth_key = f"{td_area}:{from_berth}"
-                if berth_key not in adj_berth_keys:
-                    adj_berth_keys.add(berth_key)
-                    adj_berths.append({
-                        "berth_id": from_berth,
-                        "td_area": td_area,
-                    })
-            
-            if to_berth and td_area:
-                berth_key = f"{td_area}:{to_berth}"
-                if berth_key not in adj_berth_keys:
-                    adj_berth_keys.add(berth_key)
-                    adj_berths.append({
-                        "berth_id": to_berth,
-                        "td_area": td_area,
-                    })
+        # Try to determine direction from line names in connections
+        up_evidence = 0
+        down_evidence = 0
         
-        adjacent_stations.append({
-            "stanox": adj_stanox,
-            "stanme": adj_stanme,
-            "berths": adj_berths,
-        })
+        # Check all berths of adjacent station for line indicators
+        for adj_rec in adj_berth_records: 
+            adj_td_area = adj_rec.get("td_area", "")
+            for berth_field in ["from_berth", "to_berth"]:
+                adj_berth = adj_rec.get(berth_field, "")
+                if not adj_berth or not adj_td_area:
+                    continue
+                
+                adj_berth_key = f"{adj_td_area}:{adj_berth}"
+                connections = berth_to_connections.get(adj_berth_key, {})
+                
+                # Check connections for line indicators
+                for direction in ["from", "to"]: 
+                    for conn in connections.get(direction, []):
+                        conn_line = conn.get("line", "").upper()
+                        if "UP" in conn_line: 
+                            up_evidence += 1
+                        elif "DOWN" in conn_line:
+                            down_evidence += 1
+        
+        # Decide direction based on evidence or berth numbers
+        if up_evidence > down_evidence:
+            up_adjacent_stanox.add(adj_stanox)
+        elif down_evidence > up_evidence: 
+            down_adjacent_stanox.add(adj_stanox)
+        else:
+            # Use berth number heuristic
+            adj_berth_nums = []
+            for rec in adj_berth_records:
+                for berth_field in ["from_berth", "to_berth"]:
+                    berth = rec.get(berth_field, "")
+                    if berth and berth.isdigit():
+                        adj_berth_nums.append(int(berth))
+            
+            if adj_berth_nums and avg_center > 0:
+                avg_adj = sum(adj_berth_nums) / len(adj_berth_nums)
+                
+                # Lower berth number = UP direction (towards London)
+                # Higher berth number = DOWN direction (away from London)
+                if avg_adj < avg_center: 
+                    up_adjacent_stanox.add(adj_stanox)
+                else:
+                    down_adjacent_stanox.add(adj_stanox)
+            else:
+                # Default to down if we can't determine
+                down_adjacent_stanox.add(adj_stanox)
     
-    # Split adjacent stations into up/down based on some heuristic
-    # NOTE: This is a known limitation - SMART data does not include explicit
-    # direction information, so we cannot definitively determine which stations
-    # are "up" (towards London) vs "down" (away from London) in all cases.
-    # 
-    # Current approach: Split the list evenly. This is a naive heuristic that
-    # may not reflect actual railway geography.
-    #
-    # For a production implementation, this would require:
-    # - Additional metadata about station positions/directions
-    # - Route analysis to determine typical train flow patterns
-    # - Manual configuration or external data source for direction mapping
-    #
-    # Users should be aware that the "up_connections" and "down_connections" 
-    # labels are approximate and may not match official railway terminology.
-    #mid = len(adjacent_stations) // 2
-    mid = (len(adjacent_stations) + 1) // 2
+    # Build station lists
+    def build_station_list(stanox_set):
+        stations = []
+        for adj_stanox in stanox_set: 
+            adj_berth_records = stanox_to_berths. get(adj_stanox, [])
+            adj_stanme = adj_berth_records[0].get("stanme", "") if adj_berth_records else ""
+            
+            adj_berths = []
+            adj_berth_keys = set()
+            for record in adj_berth_records: 
+                td_area = record.get("td_area", "")
+                from_berth = record.get("from_berth", "")
+                to_berth = record.get("to_berth", "")
+                
+                if from_berth and td_area:
+                    berth_key = f"{td_area}:{from_berth}"
+                    if berth_key not in adj_berth_keys: 
+                        adj_berth_keys.add(berth_key)
+                        adj_berths.append({
+                            "berth_id": from_berth,
+                            "td_area":  td_area,
+                        })
+                
+                if to_berth and td_area:
+                    berth_key = f"{td_area}:{to_berth}"
+                    if berth_key not in adj_berth_keys:
+                        adj_berth_keys.add(berth_key)
+                        adj_berths.append({
+                            "berth_id": to_berth,
+                            "td_area": td_area,
+                        })
+            
+            stations.append({
+                "stanox": adj_stanox,
+                "stanme": adj_stanme,
+                "berths":  adj_berths,
+            })
+        return stations
+    
+    up_connections = build_station_list(up_adjacent_stanox)
+    down_connections = build_station_list(down_adjacent_stanox)
     
     return {
-        "stanox": stanox,
+        "stanox":  stanox,
         "stanme": stanme,
         "berths": berths,
-        "up_connections": adjacent_stations[:mid],
-        "down_connections": adjacent_stations[mid:],
+        "up_connections": up_connections,
+        "down_connections": down_connections,
     }
+
+
 
 
 def get_berth_route(

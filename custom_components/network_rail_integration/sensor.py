@@ -968,7 +968,7 @@ class NetworkDiagramSensor(SensorEntity):
         # In a more sophisticated implementation, this would expand based on diagram_range
         from .smart_utils import get_station_berths_with_connections
         
-        station_data = get_station_berths_with_connections(graph, self._center_stanox)
+        station_data = get_station_berths_with_connections(graph, self._center_stanox, self._diagram_range * 3)
         
         # Add berths from up connections
         for conn in station_data.get("up_connections", [])[:self._diagram_range]:
@@ -1081,7 +1081,7 @@ class NetworkDiagramSensor(SensorEntity):
         from .smart_utils import get_berths_for_stanox, get_station_berths_with_connections
         
         # Get station data with connections
-        station_data = get_station_berths_with_connections(graph, self._center_stanox)
+        station_data = get_station_berths_with_connections(graph, self._center_stanox, self._diagram_range * 3)
         
         # Build center berths with occupancy
         center_berths = []

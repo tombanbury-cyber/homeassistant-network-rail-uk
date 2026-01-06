@@ -157,7 +157,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             for diagram in diagram_configs:
                 stanox = diagram.get("stanox", "")
                 enabled = diagram.get("enabled", False)
-                diagram_range = diagram.get("range", 4)
+                diagram_range = diagram.get("range", 10)
                 status = "✓" if enabled else "✗"
                 station_name = await get_formatted_station_name_async(stanox) or stanox
                 description += f"\n  {status} {station_name} ({stanox}, range: {diagram_range})"
@@ -450,7 +450,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     selector.NumberSelectorConfig(
                         min=10,
                         max=300,
-                        step=0.5,
+                        step=10,
                         unit_of_measurement="seconds",
                         mode=selector.NumberSelectorMode.BOX,
                     ),
@@ -523,7 +523,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             for diagram in diagram_configs:
                 stanox = diagram.get("stanox", "")
                 enabled = diagram.get("enabled", False)
-                diagram_range = diagram.get("range", 4)
+                diagram_range = diagram.get("range", 10)
                 status = "✓ Enabled" if enabled else "✗ Disabled"
                 station_name = await get_formatted_station_name_async(stanox) or stanox
                 description += f"  • {station_name} ({stanox}) - Range: {diagram_range} - {status}\n"
@@ -580,7 +580,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     new_diagram = {
                         "stanox": stanox,
                         "enabled": user_input.get("diagram_enabled", True),
-                        "range": user_input.get("diagram_range", 4),
+                        "range": user_input.get("diagram_range", 10),
                     }
                     _LOGGER.info("Creating new diagram:  %s", new_diagram)
                     diagram_configs.append(new_diagram)
@@ -621,10 +621,10 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         ),
                     ),
                     vol.Optional("diagram_enabled", default=True): bool,
-                    vol.Optional("diagram_range", default=4): selector.NumberSelector(
+                    vol.Optional("diagram_range", default=10): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,
-                            max=5,
+                            max=10,
                             mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
@@ -636,10 +636,10 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 {
                     vol.Required("station_query"): str,
                     vol.Optional("diagram_enabled", default=True): bool,
-                    vol.Optional("diagram_range", default=4): selector.NumberSelector(
+                    vol.Optional("diagram_range", default=10): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,
-                            max=5,
+                            max=10,
                             mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
@@ -681,7 +681,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     if diagram.get("stanox") == stanox:
                         # Update individual keys to preserve any future additions
                         diagram["enabled"] = user_input.get("diagram_enabled", True)
-                        diagram["range"] = user_input.get("diagram_range", 4)
+                        diagram["range"] = user_input.get("diagram_range", 10)
                         break
                 
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs

@@ -80,7 +80,9 @@ class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
+        super().__init__()  # Initialize parent class
+        # The config_entry will be available via self.config_entry property from parent
+        #self.config_entry = config_entry
         self._search_results: list[dict[str, str]] = []
         self._current_diagram_action: str | None = None  # Track current diagram action
         self._diagram_to_edit: dict | None = None  # Track diagram being edited

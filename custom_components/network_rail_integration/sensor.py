@@ -38,6 +38,10 @@ from .debug_log import DebugLogSensor
 
 _LOGGER = logging.getLogger(__name__)
 
+# Constants for Network Diagram berth estimation
+# Estimate ~15 berths per station on average for sequential berth collection
+BERTHS_PER_STATION_ESTIMATE = 15
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -1359,18 +1363,24 @@ class NetworkDiagramSensor(SensorEntity):
             graph, 
             center_berth_keys,
             direction="up",
-            max_berths=self._diagram_range * 15  # ~15 berths per station estimate
+            max_berths=self._diagram_range * BERTHS_PER_STATION_ESTIMATE
         )
         
         down_berths_sequential = get_sequential_berths(
             graph,
             center_berth_keys, 
             direction="down",
-            max_berths=self._diagram_range * 15
+            max_berths=self._diagram_range * BERTHS_PER_STATION_ESTIMATE
         )
         
         # Add occupancy data to sequential berths
-        for berth in up_berths_sequential + down_berths_sequential:
+        # Process lists separately to avoid unnecessary concatenation
+        for berth in up_berths_sequential:
+            berth_data = berth_state.get_berth(berth['td_area'], berth['berth_id'])
+            berth['occupied'] = bool(berth_data)
+            berth['headcode'] = berth_data.get("description") if berth_data else None
+        
+        for berth in down_berths_sequential:
             berth_data = berth_state.get_berth(berth['td_area'], berth['berth_id'])
             berth['occupied'] = bool(berth_data)
             berth['headcode'] = berth_data.get("description") if berth_data else None

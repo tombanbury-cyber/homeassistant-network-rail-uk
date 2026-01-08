@@ -840,6 +840,11 @@ def get_sequential_berths(
     berth_to_stanox = graph.get("berth_to_stanox", {})
     stanox_to_berths = graph.get("stanox_to_berths", {})
     
+    # Validate input
+    if not start_berth_keys:
+        _LOGGER.warning("Sequential berths %s: Empty start_berth_keys provided", direction)
+        return []
+    
     result = []
     visited = set(start_berth_keys)  # Mark starting berths as visited but don't add to result
     queue = deque()
